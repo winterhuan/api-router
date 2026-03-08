@@ -1,0 +1,1403 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%236366f1'/><circle cx='50' cy='50' r='25' fill='none' stroke='white' stroke-width='6'/><circle cx='50' cy='50' r='8' fill='white'/><line x1='50' y1='25' x2='50' y2='10' stroke='white' stroke-width='6' stroke-linecap='round'/><line x1='50' y1='75' x2='50' y2='90' stroke='white' stroke-width='6' stroke-linecap='round'/><line x1='25' y1='50' x2='10' y2='50' stroke='white' stroke-width='6' stroke-linecap='round'/><line x1='75' y1='50' x2='90' y2='50' stroke='white' stroke-width='6' stroke-linecap='round'/></svg>">
+    <title>APIRouter 管理后台</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --primary-hover: #4f46e5;
+            --bg-main: #0f172a;
+            --bg-card: #1e293b;
+            --bg-sidebar: #1e293b;
+            --bg-hover: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --border: #334155;
+            --success: #22c55e;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --radius: 8px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Inter', sans-serif;
+            background: var(--bg-main);
+            color: var(--text-primary);
+            min-height: 100vh;
+            width: 100%;
+            display: flex;
+        }
+
+        /* Sidebar */
+        .sidebar {
+            width: 240px;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-header h1 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .sidebar-header span {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .sidebar-nav {
+            padding: 12px;
+            flex: 1;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-radius: var(--radius);
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            margin-bottom: 4px;
+        }
+
+        .nav-item:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .nav-item.active {
+            background: var(--primary);
+            color: white;
+        }
+
+        .nav-item svg {
+            width: 20px;
+            height: 20px;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            min-width: 0;
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .header {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: var(--bg-card);
+        }
+
+        .header h2 {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .content {
+            flex: 1;
+            padding: 24px;
+            overflow-y: auto;
+            width: 100%;
+        }
+
+        /* Pages */
+        .page { display: none; width: 100%; }
+        .page.active { display: block; width: 100%; }
+
+        /* Cards */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header h3 {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            padding: 10px 12px;
+            background: var(--bg-main);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            color: var(--text-primary);
+            font-size: 14px;
+            transition: border-color 0.2s;
+        }
+
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        .form-group textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px;
+            border-radius: var(--radius);
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+        }
+
+        .btn-secondary {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 13px;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        /* Upstream Cards */
+        .upstream-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .upstream-header {
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .upstream-header:hover {
+            background: var(--bg-hover);
+        }
+
+        .upstream-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1;
+        }
+
+        .upstream-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .upstream-status.enabled { background: var(--success); }
+        .upstream-status.disabled { background: var(--text-muted); }
+
+        .upstream-name {
+            font-weight: 500;
+            font-size: 14px;
+        }
+
+        .upstream-url {
+            color: var(--text-muted);
+            font-size: 13px;
+            margin-left: 8px;
+        }
+
+        .upstream-badge {
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 500;
+            background: var(--bg-hover);
+            color: var(--text-secondary);
+        }
+
+        .upstream-actions {
+            display: flex;
+            gap: 8px;
+            margin-left: 16px;
+        }
+
+        .upstream-toggle {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+        }
+
+        .upstream-toggle.expanded {
+            transform: rotate(180deg);
+        }
+
+        .upstream-body {
+            display: none;
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-main);
+        }
+
+        .upstream-body.expanded {
+            display: block;
+        }
+
+        .upstream-body .form-row {
+            margin-bottom: 16px;
+        }
+
+        .upstream-body .form-row:last-child {
+            margin-bottom: 0;
+        }
+
+        /* Log Items */
+        .log-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            margin-bottom: 8px;
+            overflow: hidden;
+        }
+
+        .log-header {
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            font-size: 13px;
+        }
+
+        .log-header:hover {
+            background: var(--bg-hover);
+        }
+
+        .log-method {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+
+        .log-method.GET { background: #1d4ed8; }
+        .log-method.POST { background: #059669; }
+        .log-method.PUT { background: #d97706; }
+        .log-method.DELETE { background: #dc2626; }
+
+        .log-status {
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: 500;
+            font-size: 12px;
+        }
+
+        .log-status.success { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+        .log-status.error { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+        .log-status.warning { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
+
+        .log-body {
+            display: none;
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            background: var(--bg-main);
+            font-size: 13px;
+        }
+
+        .log-body.expanded { display: block; }
+
+        .log-detail {
+            display: grid;
+            grid-template-columns: 100px 1fr;
+            gap: 8px;
+        }
+
+        .log-detail-label {
+            color: var(--text-muted);
+        }
+
+        /* Client Key Items */
+        .key-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+
+        .key-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+        }
+
+        .key-name {
+            font-weight: 500;
+            margin-bottom: 8px;
+        }
+
+        .key-value {
+            font-family: 'SF Mono', 'Consolas', monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+            background: var(--bg-main);
+            padding: 8px 12px;
+            border-radius: var(--radius);
+            margin-top: 8px;
+            word-break: break-all;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 600;
+            color: var(--primary);
+        }
+
+        .stat-label {
+            font-size: 14px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+
+        /* Toggle Switch */
+        .toggle-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: var(--bg-hover);
+            transition: 0.3s;
+            border-radius: 24px;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        .toggle input:checked + .toggle-slider {
+            background-color: var(--primary);
+        }
+
+        .toggle input:checked + .toggle-slider:before {
+            transform: translateX(20px);
+        }
+
+        /* Messages */
+        .message {
+            padding: 12px 16px;
+            border-radius: var(--radius);
+            margin-top: 16px;
+            font-size: 14px;
+        }
+
+        .message.success {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+            border: 1px solid var(--success);
+        }
+
+        .message.error {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+            border: 1px solid var(--danger);
+        }
+
+        /* Main App Container */
+        #mainApp {
+            width: 100%;
+            height: 100vh;
+        }
+
+        /* Login Page */
+        .login-container {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--bg-main);
+        }
+
+        .login-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 40px;
+            width: 100%;
+            max-width: 400px;
+        }
+
+        .login-card h1 {
+            text-align: center;
+            margin-bottom: 8px;
+        }
+
+        .login-card p {
+            text-align: center;
+            color: var(--text-muted);
+            margin-bottom: 24px;
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+        }
+
+        .empty-state svg {
+            width: 48px;
+            height: 48px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: fixed;
+                left: -240px;
+                height: 100vh;
+                z-index: 100;
+                transition: left 0.3s;
+            }
+
+            .sidebar.open {
+                left: 0;
+            }
+
+            .main-content {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Login Page -->
+    <div id="loginPage" class="login-container">
+        <div class="login-card">
+            <h1>APIRouter</h1>
+            <p>管理后台登录</p>
+            <div class="form-group">
+                <label>管理员密码</label>
+                <input type="password" id="password" placeholder="请输入密码" onkeypress="if(event.key==='Enter')login()">
+            </div>
+            <button class="btn btn-primary" style="width: 100%; margin-top: 8px;" onclick="login()">
+                登录
+            </button>
+            <div id="loginError" class="message error" style="display: none; margin-top: 16px;"></div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="mainApp" style="display: none;">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h1>APIRouter</h1>
+                <span>管理后台</span>
+            </div>
+            <nav class="sidebar-nav">
+                <div class="nav-item active" data-page="dashboard">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7" rx="1"/>
+                        <rect x="14" y="3" width="7" height="7" rx="1"/>
+                        <rect x="3" y="14" width="7" height="7" rx="1"/>
+                        <rect x="14" y="14" width="7" height="7" rx="1"/>
+                    </svg>
+                    概览
+                </div>
+                <div class="nav-item" data-page="upstreams">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="2" y1="12" x2="22" y2="12"/>
+                        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+                    </svg>
+                    上游管理
+                </div>
+                <div class="nav-item" data-page="access">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
+                    访问控制
+                </div>
+                <div class="nav-item" data-page="logs">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                    </svg>
+                    请求日志
+                </div>
+                <div class="nav-item" data-page="settings">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                    系统设置
+                </div>
+            </nav>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header class="header">
+                <h2 id="pageTitle">概览</h2>
+                <div class="btn-group">
+                    <button class="btn btn-secondary btn-sm" onclick="refreshData()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="23 4 23 10 17 10"/>
+                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                        </svg>
+                        刷新
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="logout()">退出</button>
+                </div>
+            </header>
+
+            <div class="content">
+                <!-- Dashboard Page -->
+                <div id="page-dashboard" class="page active">
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value" id="statUpstreams">0</div>
+                            <div class="stat-label">上游服务器</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="statEnabled">0</div>
+                            <div class="stat-label">已启用</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="statKeys">0</div>
+                            <div class="stat-label">客户端密钥</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="statLogs">0</div>
+                            <div class="stat-label">请求日志</div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>系统状态</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label>调试模式</label>
+                                    <div id="dashboardDebugStatus" style="color: var(--text-muted);">-</div>
+                                </div>
+                                <div class="form-group">
+                                    <label>访问控制</label>
+                                    <div id="dashboardAccessStatus" style="color: var(--text-muted);">-</div>
+                                </div>
+                                <div class="form-group">
+                                    <label>服务地址</label>
+                                    <div id="dashboardServiceUrl" style="color: var(--text-muted);">-</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upstreams Page -->
+                <div id="page-upstreams" class="page">
+                    <div class="btn-group" style="margin-bottom: 20px;">
+                        <button class="btn btn-primary" onclick="addUpstream()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            添加上游
+                        </button>
+                        <button class="btn btn-secondary" onclick="saveConfig()">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                                <polyline points="17 21 17 13 7 13 7 21"/>
+                                <polyline points="7 3 7 8 15 8"/>
+                            </svg>
+                            保存更改
+                        </button>
+                    </div>
+                    <div id="upstreamsList"></div>
+                    <div id="upstreamsMessage"></div>
+                </div>
+
+                <!-- Access Control Page -->
+                <div id="page-access" class="page">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>访问控制设置</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="toggle-wrapper">
+                                <label class="toggle">
+                                    <input type="checkbox" id="accessControlEnabled">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <span>启用访问控制（需要客户端 API Key）</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>客户端 API Keys</h3>
+                            <button class="btn btn-primary btn-sm" onclick="generateClientKey()">生成新 Key</button>
+                        </div>
+                        <div class="card-body">
+                            <div id="clientKeysList"></div>
+                            <div class="btn-group" style="margin-top: 16px;">
+                                <button class="btn btn-primary" onclick="saveClientKeys()">保存 Keys</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="keysMessage"></div>
+                </div>
+
+                <!-- Logs Page -->
+                <div id="page-logs" class="page">
+                    <div class="btn-group" style="margin-bottom: 20px;">
+                        <button class="btn btn-secondary" onclick="loadLogs(true)">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="23 4 23 10 17 10"/>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+                            </svg>
+                            刷新日志
+                        </button>
+                        <button class="btn btn-danger" onclick="clearLogs()">清空日志</button>
+                    </div>
+                    <div id="logsList"></div>
+                    <div id="logsMessage"></div>
+                </div>
+
+                <!-- Settings Page -->
+                <div id="page-settings" class="page">
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>全局设置</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <div class="toggle-wrapper">
+                                    <label class="toggle">
+                                        <input type="checkbox" id="debugMode">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>启用调试模式</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">
+                            <h3>修改密码</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="form-group">
+                                <label>新密码（留空保持不变）</label>
+                                <input type="password" id="newPassword" placeholder="输入新密码">
+                            </div>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-primary" onclick="saveConfig()">保存设置</button>
+                    <div id="settingsMessage"></div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let adminPassword = '';
+        let config = { upstreams: [], debug_mode: false };
+        let clientKeys = [];
+        let logs = [];
+
+        // Navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(i => i.classList.remove('active'));
+                item.classList.add('active');
+                
+                const page = item.dataset.page;
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                document.getElementById(`page-${page}`).classList.add('active');
+                
+                const titles = {
+                    dashboard: '概览',
+                    upstreams: '上游管理',
+                    access: '访问控制',
+                    logs: '请求日志',
+                    settings: '系统设置'
+                };
+                document.getElementById('pageTitle').textContent = titles[page];
+                
+                // 切换到日志页面时自动加载日志
+                if (page === 'logs' && logs.length === 0) {
+                    loadLogs();
+                }
+            });
+        });
+
+        // Login
+        async function login() {
+            const password = document.getElementById('password').value;
+            const errorDiv = document.getElementById('loginError');
+            
+            try {
+                const response = await fetch(`${API_BASE}/admin/verify`, {
+                    method: 'POST',
+                    headers: { 'X-Admin-Password': password }
+                });
+                const data = await response.json();
+                
+                if (data.ok) {
+                    adminPassword = password;
+                    sessionStorage.setItem('adminPassword', password);
+                    document.getElementById('loginPage').style.display = 'none';
+                    document.getElementById('mainApp').style.display = 'flex';
+                    await loadAllData();
+                } else {
+                    errorDiv.textContent = '密码错误';
+                    errorDiv.style.display = 'block';
+                }
+            } catch (error) {
+                errorDiv.textContent = '登录失败：' + error.message;
+                errorDiv.style.display = 'block';
+            }
+        }
+
+        function logout() {
+            sessionStorage.removeItem('adminPassword');
+            location.reload();
+        }
+
+        async function loadAllData() {
+            await Promise.all([
+                loadConfig(),
+                loadClientKeys(),
+                loadLogs()
+            ]);
+        }
+
+        function refreshData() {
+            loadAllData();
+        }
+
+        async function loadConfig() {
+            try {
+                const response = await fetch(`${API_BASE}/admin/config`, {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                config = await response.json();
+                renderUpstreams();
+                document.getElementById('debugMode').checked = config.debug_mode;
+                updateDashboard();
+            } catch (error) {
+                console.error('加载配置失败:', error);
+            }
+        }
+
+        function updateDashboard() {
+            document.getElementById('statUpstreams').textContent = config.upstreams.length;
+            document.getElementById('statEnabled').textContent = config.upstreams.filter(u => u.enabled).length;
+            document.getElementById('statKeys').textContent = clientKeys.length;
+            document.getElementById('statLogs').textContent = logs.length;
+            
+            document.getElementById('dashboardDebugStatus').textContent = config.debug_mode ? '已启用' : '已禁用';
+            document.getElementById('dashboardDebugStatus').style.color = config.debug_mode ? 'var(--success)' : 'var(--text-muted)';
+            
+            const accessEnabled = document.getElementById('accessControlEnabled').checked;
+            document.getElementById('dashboardAccessStatus').textContent = accessEnabled ? '已启用' : '已禁用';
+            document.getElementById('dashboardAccessStatus').style.color = accessEnabled ? 'var(--success)' : 'var(--text-muted)';
+            
+            document.getElementById('dashboardServiceUrl').textContent = window.location.origin;
+        }
+
+        function renderUpstreams() {
+            const container = document.getElementById('upstreamsList');
+            
+            if (config.upstreams.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"/>
+                            <line x1="2" y1="12" x2="22" y2="12"/>
+                        </svg>
+                        <p>暂无上游服务器配置</p>
+                        <button class="btn btn-primary" onclick="addUpstream()" style="margin-top: 16px;">添加上游</button>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = config.upstreams.map((upstream, index) => `
+                <div class="upstream-card">
+                    <div class="upstream-header" onclick="toggleUpstream(${index})">
+                        <div class="upstream-info">
+                            <div class="upstream-status ${upstream.enabled ? 'enabled' : 'disabled'}"></div>
+                            <span class="upstream-name">${upstream.id}</span>
+                            <span class="upstream-url">${upstream.base_url}</span>
+                        </div>
+                        <div class="upstream-actions">
+                            <span class="upstream-badge">${upstream.api_format}</span>
+                            <span class="upstream-badge">优先级 ${upstream.priority}</span>
+                            <div class="upstream-toggle" id="toggle-${index}">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="6 9 12 15 18 9"/>
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="upstream-body" id="body-${index}">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>ID</label>
+                                <input type="text" value="${upstream.id}" onchange="updateUpstream(${index}, 'id', this.value)">
+                            </div>
+                            <div class="form-group">
+                                <label>基础 URL</label>
+                                <input type="text" value="${upstream.base_url}" onchange="updateUpstream(${index}, 'base_url', this.value)">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>API 格式</label>
+                                <select onchange="updateUpstream(${index}, 'api_format', this.value)">
+                                    <option value="anthropic" ${upstream.api_format === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+                                    <option value="openai" ${upstream.api_format === 'openai' ? 'selected' : ''}>OpenAI</option>
+                                    <option value="openai_response" ${upstream.api_format === 'openai_response' ? 'selected' : ''}>OpenAI Response</option>
+                                    <option value="gemini" ${upstream.api_format === 'gemini' ? 'selected' : ''}>Gemini</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>优先级</label>
+                                <input type="number" value="${upstream.priority}" onchange="updateUpstream(${index}, 'priority', parseInt(this.value) || 1)">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>API 密钥（每行一个）</label>
+                                <textarea rows="3" onchange="updateUpstream(${index}, 'keys', this.value.split('\n').filter(k => k.trim()))">${upstream.keys.join('\n')}</textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>模型映射（JSON）</label>
+                                <textarea rows="3" onchange="tryUpdateModelMap(${index}, this.value)">${JSON.stringify(upstream.model_map || {}, null, 2)}</textarea>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <div class="toggle-wrapper">
+                                    <label class="toggle">
+                                        <input type="checkbox" ${upstream.enabled ? 'checked' : ''} onchange="updateUpstream(${index}, 'enabled', this.checked)">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                    <span>已启用</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="margin-top: 16px;">
+                            <button class="btn btn-danger btn-sm" onclick="removeUpstream(${index})">删除此上游</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleUpstream(index) {
+            const body = document.getElementById(`body-${index}`);
+            const toggle = document.getElementById(`toggle-${index}`);
+            body.classList.toggle('expanded');
+            toggle.classList.toggle('expanded');
+        }
+
+        function tryUpdateModelMap(index, value) {
+            try {
+                config.upstreams[index].model_map = JSON.parse(value);
+            } catch (e) {
+                // Invalid JSON, don't update
+            }
+        }
+
+        function updateUpstream(index, field, value) {
+            config.upstreams[index][field] = value;
+        }
+
+        function addUpstream() {
+            config.upstreams.push({
+                id: `upstream-${Date.now()}`,
+                base_url: 'https://api.example.com/v1',
+                api_format: 'anthropic',
+                keys: ['sk-key-here'],
+                model_map: {
+                    "claude-haiku-4-5-20251001": "claude-haiku-4-5-20251001",
+                    "claude-opus-4-6": "claude-opus-4-6",
+                    "claude-sonnet-4-6": "claude-sonnet-4-6"
+                },
+                priority: config.upstreams.length + 1,
+                enabled: true
+            });
+            renderUpstreams();
+        }
+
+        function removeUpstream(index) {
+            if (confirm('确定删除此上游服务器？')) {
+                config.upstreams.splice(index, 1);
+                renderUpstreams();
+            }
+        }
+
+        async function saveConfig() {
+            const showMessage = (msg, success) => {
+                const ids = ['upstreamsMessage', 'settingsMessage'];
+                ids.forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) {
+                        el.className = `message ${success ? 'success' : 'error'}`;
+                        el.textContent = msg;
+                        el.style.display = 'block';
+                    }
+                });
+                setTimeout(() => {
+                    ids.forEach(id => {
+                        const el = document.getElementById(id);
+                        if (el) el.textContent = '';
+                    });
+                }, 3000);
+            };
+
+            try {
+                const payload = {
+                    upstreams: config.upstreams,
+                    debug_mode: document.getElementById('debugMode').checked
+                };
+
+                const newPassword = document.getElementById('newPassword').value;
+                if (newPassword) {
+                    payload.new_password = newPassword;
+                }
+
+                const response = await fetch(`${API_BASE}/admin/config`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Password': adminPassword
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await response.json();
+
+                if (data.ok) {
+                    showMessage('配置保存成功！', true);
+                    if (newPassword) {
+                        adminPassword = newPassword;
+                        sessionStorage.setItem('adminPassword', newPassword);
+                        document.getElementById('newPassword').value = '';
+                    }
+                    // 收起所有上游卡片
+                    document.querySelectorAll('.upstream-body.expanded').forEach(el => {
+                        el.classList.remove('expanded');
+                    });
+                    document.querySelectorAll('.upstream-toggle.expanded').forEach(el => {
+                        el.classList.remove('expanded');
+                    });
+                    updateDashboard();
+                } else {
+                    throw new Error(data.error || '保存失败');
+                }
+            } catch (error) {
+                showMessage('保存失败：' + error.message, false);
+            }
+        }
+
+        async function loadClientKeys() {
+            try {
+                const response = await fetch(`${API_BASE}/admin/client-keys`, {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await response.json();
+                clientKeys = data.keys || [];
+                document.getElementById('accessControlEnabled').checked = data.access_control_enabled || false;
+                renderClientKeys();
+                updateDashboard();
+            } catch (error) {
+                console.error('加载客户端 Keys 失败:', error);
+            }
+        }
+
+        function renderClientKeys() {
+            const container = document.getElementById('clientKeysList');
+            
+            if (clientKeys.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>暂无客户端 API Keys</p></div>';
+                return;
+            }
+
+            container.innerHTML = clientKeys.map((keyInfo, index) => `
+                <div class="key-item">
+                    <div class="key-header">
+                        <div>
+                            <input type="text" value="${keyInfo.name || ''}" 
+                                   onchange="updateClientKey(${index}, 'name', this.value)"
+                                   style="background: transparent; border: none; color: var(--text-primary); font-weight: 500; font-size: 14px; padding: 0;">
+                            <div class="key-value">${keyInfo.key}</div>
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div class="toggle-wrapper">
+                                <label class="toggle">
+                                    <input type="checkbox" ${keyInfo.enabled ? 'checked' : ''} onchange="updateClientKey(${index}, 'enabled', this.checked)">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <button class="btn btn-danger btn-sm" onclick="removeClientKey(${index})">删除</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function updateClientKey(index, field, value) {
+            clientKeys[index][field] = value;
+        }
+
+        function removeClientKey(index) {
+            if (confirm('确定删除此 API Key？')) {
+                clientKeys.splice(index, 1);
+                renderClientKeys();
+            }
+        }
+
+        async function generateClientKey() {
+            try {
+                const response = await fetch(`${API_BASE}/admin/generate-key`, {
+                    method: 'POST',
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await response.json();
+
+                const name = prompt('请输入 Key 名称：', `Client-${clientKeys.length + 1}`);
+                if (name) {
+                    clientKeys.push({
+                        key: data.key,
+                        name: name,
+                        enabled: true,
+                        created_at: new Date().toISOString()
+                    });
+                    renderClientKeys();
+                    updateDashboard();
+                }
+            } catch (error) {
+                alert('生成 Key 失败：' + error.message);
+            }
+        }
+
+        async function saveClientKeys() {
+            const messageDiv = document.getElementById('keysMessage');
+            try {
+                const response = await fetch(`${API_BASE}/admin/client-keys`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Password': adminPassword
+                    },
+                    body: JSON.stringify({
+                        keys: clientKeys,
+                        access_control_enabled: document.getElementById('accessControlEnabled').checked
+                    })
+                });
+
+                const data = await response.json();
+                if (data.ok) {
+                    messageDiv.className = 'message success';
+                    messageDiv.textContent = '保存成功！';
+                    setTimeout(() => messageDiv.textContent = '', 3000);
+                    updateDashboard();
+                } else {
+                    throw new Error('保存失败');
+                }
+            } catch (error) {
+                messageDiv.className = 'message error';
+                messageDiv.textContent = '保存失败：' + error.message;
+            }
+        }
+
+        async function loadLogs(showMessage = false) {
+            const messageDiv = document.getElementById('logsMessage');
+            try {
+                const response = await fetch(`${API_BASE}/admin/logs`, {
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await response.json();
+                logs = data.logs || [];
+                renderLogs();
+                updateDashboard();
+                if (showMessage) {
+                    messageDiv.className = 'message success';
+                    messageDiv.textContent = `已加载 ${logs.length} 条日志`;
+                    setTimeout(() => messageDiv.textContent = '', 3000);
+                }
+            } catch (error) {
+                if (showMessage) {
+                    messageDiv.className = 'message error';
+                    messageDiv.textContent = '加载失败：' + error.message;
+                }
+            }
+        }
+
+        function renderLogs() {
+            const container = document.getElementById('logsList');
+            
+            if (logs.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>暂无日志记录</p></div>';
+                return;
+            }
+
+            container.innerHTML = logs.map((log, index) => {
+                const statusClass = log.status_code >= 200 && log.status_code < 300 ? 'success' :
+                                   log.status_code >= 400 ? 'error' : 'warning';
+                const attemptsCount = log.attempts ? log.attempts.length : 0;
+                const attemptsBadge = attemptsCount > 1 
+                    ? `<span class="upstream-badge" style="background: rgba(239, 68, 68, 0.2); color: var(--danger);">${attemptsCount}次尝试</span>`
+                    : '';
+                
+                let attemptsHtml = '';
+                if (log.attempts && log.attempts.length > 0) {
+                    attemptsHtml = `
+                        <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--border);">
+                            <div style="font-weight: 500; margin-bottom: 12px; color: var(--text-secondary);">尝试记录 (${log.attempts.length}次)</div>
+                            ${log.attempts.map((attempt, i) => {
+                                const attemptStatusClass = attempt.status_code >= 200 && attempt.status_code < 300 ? 'success' : 'error';
+                                return `
+                                    <div style="background: var(--bg-card); border-radius: var(--radius); padding: 12px; margin-bottom: 8px;">
+                                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                            <span style="font-weight: 500;">#${i + 1} ${attempt.upstream_id}</span>
+                                            <span class="log-status ${attemptStatusClass}">${attempt.status_code || 'N/A'}</span>
+                                        </div>
+                                        ${attempt.url ? `<div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">${attempt.url}</div>` : ''}
+                                        ${attempt.error ? `<div style="font-size: 13px; color: var(--danger);">${attempt.error}</div>` : ''}
+                                        ${attempt.response_body ? `<details style="margin-top: 8px;"><summary style="cursor: pointer; color: var(--text-muted); font-size: 12px;">查看响应</summary><pre style="margin: 8px 0 0 0; padding: 12px; background: var(--bg-main); border-radius: var(--radius); overflow-x: auto; font-size: 12px; white-space: pre-wrap; word-break: break-all;">${escapeHtml(attempt.response_body)}</pre></details>` : ''}
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    `;
+                }
+                
+                return `
+                    <div class="log-item">
+                        <div class="log-header" onclick="toggleLog(${index})">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <span class="log-method ${log.method}">${log.method}</span>
+                                <span style="color: var(--text-secondary);">${log.path}</span>
+                                ${attemptsBadge}
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 16px;">
+                                <span class="log-status ${statusClass}">${log.status_code || 'N/A'}</span>
+                                <span style="color: var(--text-muted);">${log.duration_ms || 0}ms</span>
+                            </div>
+                        </div>
+                        <div class="log-body" id="log-body-${index}">
+                            <div class="log-detail">
+                                <span class="log-detail-label">时间</span>
+                                <span>${log.timestamp}</span>
+                                <span class="log-detail-label">模型</span>
+                                <span>${log.model || '-'}</span>
+                                <span class="log-detail-label">最终上游</span>
+                                <span>${log.upstream_id || '-'}</span>
+                            </div>
+                            ${log.error ? `<div style="margin-top: 12px; padding: 12px; background: rgba(239, 68, 68, 0.1); border-radius: var(--radius); color: var(--danger); font-size: 13px;"><strong>错误:</strong> ${log.error}</div>` : ''}
+                            ${attemptsHtml}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function toggleLog(index) {
+            const body = document.getElementById(`log-body-${index}`);
+            body.classList.toggle('expanded');
+        }
+
+        async function clearLogs() {
+            if (!confirm('确定要清空所有日志吗？')) return;
+
+            const messageDiv = document.getElementById('logsMessage');
+            try {
+                const response = await fetch(`${API_BASE}/admin/logs`, {
+                    method: 'DELETE',
+                    headers: { 'X-Admin-Password': adminPassword }
+                });
+                const data = await response.json();
+                if (data.ok) {
+                    logs = [];
+                    renderLogs();
+                    updateDashboard();
+                    messageDiv.className = 'message success';
+                    messageDiv.textContent = '日志已清空';
+                    setTimeout(() => messageDiv.textContent = '', 3000);
+                }
+            } catch (error) {
+                messageDiv.className = 'message error';
+                messageDiv.textContent = '清空失败：' + error.message;
+            }
+        }
+
+        // Auto-login
+        window.onload = () => {
+            const savedPassword = sessionStorage.getItem('adminPassword');
+            if (savedPassword) {
+                document.getElementById('password').value = savedPassword;
+                login();
+            }
+        };
+    </script>
+</body>
+</html>

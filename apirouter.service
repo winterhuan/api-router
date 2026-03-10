@@ -14,9 +14,6 @@ StandardOutput=journal
 StandardError=journal
 LimitNOFILE=65536
 Environment=RUST_LOG=info
-Environment=HTTP_PROXY=http://127.0.0.1:10808
-Environment=HTTPS_PROXY=http://127.0.0.1:10808
-Environment=NO_PROXY=localhost,127.0.0.1,::1,evomap.ai,.evomap.ai,.feishu.cn,.larksuite.com,.larkoffice.com,.feishucdn.com,.bytedance.com,.volces.com,.volcengine.com,.aliyuncs.com,.qwen.ai,.minimax.io,.minimaxi.com,.moonshot.ai,.baidu.com,.baidubce.com,.deepseek.com,.nvidia.com,longcat.chat,.longcat.chat
 
 [Install]
 WantedBy=multi-user.target

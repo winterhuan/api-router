@@ -5,11 +5,27 @@ use serde_json::{json, Value};
 
 /// Convert Anthropic request to target format.
 /// Returns (converted_body, endpoint_path).
-pub fn to_upstream(body: &Value, fmt: &ApiFormat) -> (Value, &'static str) {
-    match fmt {
-        ApiFormat::Anthropic => (body.clone(), "/messages"),
+pub fn to_upstream(
+    body: &Value,
+    source_fmt: &ApiFormat,
+    target_fmt: &ApiFormat,
+) -> (Value, String) {
+    if source_fmt == target_fmt {
+        // When formats are the same, we don't strictly force an endpoint.
+        // The proxy logic will use the original path if endpoint is None,
+        // but for test compatibility we return standard paths.
+        let endpoint = match target_fmt {
+            ApiFormat::Anthropic => "/messages",
+            ApiFormat::Openai => "/chat/completions",
+            ApiFormat::OpenaiResponse => "/responses",
+            ApiFormat::Gemini => "/models/gemini-pro:generateContent", // Fallback
+        };
+        return (body.clone(), endpoint.to_string());
+    }
 
-        ApiFormat::Openai => {
+    match (source_fmt, target_fmt) {
+        // Anthropic -> *
+        (ApiFormat::Anthropic, ApiFormat::Openai) => {
             let mut messages = vec![];
 
             // Move system prompt to messages
@@ -24,24 +40,25 @@ pub fn to_upstream(body: &Value, fmt: &ApiFormat) -> (Value, &'static str) {
             if let Some(msgs) = body.get("messages").and_then(|m| m.as_array()) {
                 for msg in msgs {
                     let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
-                    let content = if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
-                        content_arr
-                            .iter()
-                            .filter_map(|c| {
-                                if c.get("type")?.as_str()? == "text" {
-                                    c.get("text")?.as_str()
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    } else {
-                        msg.get("content")
-                            .and_then(|c| c.as_str())
-                            .unwrap_or("")
-                            .to_string()
-                    };
+                    let content =
+                        if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
+                            content_arr
+                                .iter()
+                                .filter_map(|c| {
+                                    if c.get("type")?.as_str()? == "text" {
+                                        c.get("text")?.as_str()
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>()
+                                .join(" ")
+                        } else {
+                            msg.get("content")
+                                .and_then(|c| c.as_str())
+                                .unwrap_or("")
+                                .to_string()
+                        };
 
                     messages.push(json!({
                         "role": role,
@@ -60,10 +77,10 @@ pub fn to_upstream(body: &Value, fmt: &ApiFormat) -> (Value, &'static str) {
                 converted["max_completion_tokens"] = max_tokens.clone();
             }
 
-            (converted, "/chat/completions")
+            (converted, "/chat/completions".to_string())
         }
 
-        ApiFormat::OpenaiResponse => {
+        (ApiFormat::Anthropic, ApiFormat::OpenaiResponse) => {
             let mut converted = json!({
                 "model": body.get("model").and_then(|m| m.as_str()).unwrap_or("gpt-4"),
                 "input": body.get("messages").cloned().unwrap_or(json!([])),
@@ -74,10 +91,10 @@ pub fn to_upstream(body: &Value, fmt: &ApiFormat) -> (Value, &'static str) {
                 converted["max_tokens"] = max_tokens.clone();
             }
 
-            (converted, "/responses")
+            (converted, "/responses".to_string())
         }
 
-        ApiFormat::Gemini => {
+        (ApiFormat::Anthropic, ApiFormat::Gemini) => {
             let mut contents = vec![];
 
             if let Some(msgs) = body.get("messages").and_then(|m| m.as_array()) {
@@ -88,7 +105,9 @@ pub fn to_upstream(body: &Value, fmt: &ApiFormat) -> (Value, &'static str) {
                         "user"
                     };
 
-                    let parts = if let Some(content_arr) = msg.get("content").and_then(|c| c.as_array()) {
+                    let parts = if let Some(content_arr) =
+                        msg.get("content").and_then(|c| c.as_array())
+                    {
                         content_arr
                             .iter()
                             .filter_map(|c| {
@@ -100,7 +119,9 @@ pub fn to_upstream(body: &Value, fmt: &ApiFormat) -> (Value, &'static str) {
                             })
                             .collect()
                     } else {
-                        vec![json!({ "text": msg.get("content").and_then(|c| c.as_str()).unwrap_or("") })]
+                        vec![
+                            json!({ "text": msg.get("content").and_then(|c| c.as_str()).unwrap_or("") }),
+                        ]
                     };
 
                     contents.push(json!({
@@ -125,22 +146,74 @@ pub fn to_upstream(body: &Value, fmt: &ApiFormat) -> (Value, &'static str) {
                 converted["generationConfig"]["maxOutputTokens"] = max_tokens.clone();
             }
 
-            let model = body.get("model").and_then(|m| m.as_str()).unwrap_or("gemini-pro");
-            let _endpoint = format!("/models/{}:generateContent", model);
-            // Note: This is a static str for consistency, but we need to handle this differently
-            // For now, just return a default endpoint
-            (converted, "/models/gemini-pro:generateContent")
+            let model = body
+                .get("model")
+                .and_then(|m| m.as_str())
+                .unwrap_or("gemini-pro");
+            (converted, format!("/models/{}:generateContent", model))
+        }
+
+        // OpenAI -> *
+        (ApiFormat::Openai, ApiFormat::Anthropic) => {
+            let mut messages = vec![];
+            let mut system = None;
+
+            if let Some(msgs) = body.get("messages").and_then(|m| m.as_array()) {
+                for msg in msgs {
+                    let role = msg.get("role").and_then(|r| r.as_str()).unwrap_or("user");
+                    let content = msg.get("content").and_then(|c| c.as_str()).unwrap_or("");
+
+                    if role == "system" {
+                        system = Some(content.to_string());
+                    } else {
+                        messages.push(json!({
+                            "role": role,
+                            "content": content
+                        }));
+                    }
+                }
+            }
+
+            let mut converted = json!({
+                "model": body.get("model").and_then(|m| m.as_str()).unwrap_or("claude-3-sonnet-20240229"),
+                "messages": messages,
+                "stream": body.get("stream").and_then(|s| s.as_bool()).unwrap_or(false),
+                "max_tokens": body.get("max_completion_tokens").or_else(|| body.get("max_tokens")).cloned().unwrap_or(json!(1024))
+            });
+
+            if let Some(s) = system {
+                converted["system"] = json!(s);
+            }
+
+            (converted, "/messages".to_string())
+        }
+
+        // Add more combinations as needed, or just return as-is for now
+        _ => {
+            let endpoint = match target_fmt {
+                ApiFormat::Anthropic => "/messages",
+                ApiFormat::Openai => "/chat/completions",
+                ApiFormat::OpenaiResponse => "/responses",
+                ApiFormat::Gemini => "/models/gemini-pro:generateContent",
+            };
+            (body.clone(), endpoint.to_string())
         }
     }
 }
 
-/// Convert upstream response back to Anthropic format.
-pub fn from_upstream(body: &Value, fmt: &ApiFormat) -> Value {
-    match fmt {
-        ApiFormat::Anthropic => body.clone(),
+/// Convert upstream response back to source format.
+pub fn from_upstream(body: &Value, target_fmt: &ApiFormat, source_fmt: &ApiFormat) -> Value {
+    if source_fmt == target_fmt {
+        return body.clone();
+    }
 
-        ApiFormat::Openai => {
-            let choice = body.get("choices").and_then(|c| c.as_array()).and_then(|a| a.first());
+    match (target_fmt, source_fmt) {
+        // * -> Anthropic
+        (ApiFormat::Openai, ApiFormat::Anthropic) => {
+            let choice = body
+                .get("choices")
+                .and_then(|c| c.as_array())
+                .and_then(|a| a.first());
             let message = choice.and_then(|c| c.get("message"));
             let content = message
                 .and_then(|m| m.get("content").and_then(|c| c.as_str()))
@@ -164,7 +237,7 @@ pub fn from_upstream(body: &Value, fmt: &ApiFormat) -> Value {
             })
         }
 
-        ApiFormat::OpenaiResponse => {
+        (ApiFormat::OpenaiResponse, ApiFormat::Anthropic) => {
             let output = body
                 .get("output")
                 .and_then(|o| o.as_array())
@@ -183,8 +256,11 @@ pub fn from_upstream(body: &Value, fmt: &ApiFormat) -> Value {
             })
         }
 
-        ApiFormat::Gemini => {
-            let candidate = body.get("candidates").and_then(|c| c.as_array()).and_then(|a| a.first());
+        (ApiFormat::Gemini, ApiFormat::Anthropic) => {
+            let candidate = body
+                .get("candidates")
+                .and_then(|c| c.as_array())
+                .and_then(|a| a.first());
             let parts = candidate
                 .and_then(|c| c.get("content"))
                 .and_then(|c| c.get("parts"))
@@ -212,12 +288,75 @@ pub fn from_upstream(body: &Value, fmt: &ApiFormat) -> Value {
                 }
             })
         }
+
+        // * -> OpenAI
+        (ApiFormat::Anthropic, ApiFormat::Openai) => {
+            let content = body
+                .get("content")
+                .and_then(|c| c.as_array())
+                .and_then(|a| a.first())
+                .and_then(|c| c.get("text").and_then(|t| t.as_str()))
+                .unwrap_or("");
+
+            json!({
+                "id": body.get("id").and_then(|i| i.as_str()).unwrap_or("msg-unknown"),
+                "object": "chat.completion",
+                "created": chrono::Utc::now().timestamp(),
+                "model": body.get("model").and_then(|m| m.as_str()).unwrap_or("unknown"),
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": content
+                    },
+                    "finish_reason": if body.get("stop_reason").and_then(|s| s.as_str()) == Some("end_turn") {
+                        "stop"
+                    } else {
+                        "length"
+                    }
+                }],
+                "usage": {
+                    "prompt_tokens": body.get("usage").and_then(|u| u.get("input_tokens")).and_then(|p| p.as_u64()).unwrap_or(0),
+                    "completion_tokens": body.get("usage").and_then(|u| u.get("output_tokens")).and_then(|c| c.as_u64()).unwrap_or(0),
+                    "total_tokens": body.get("usage").and_then(|u| u.get("input_tokens")).and_then(|p| p.as_u64()).unwrap_or(0) +
+                                    body.get("usage").and_then(|u| u.get("output_tokens")).and_then(|c| c.as_u64()).unwrap_or(0)
+                }
+            })
+        }
+
+        _ => body.clone(),
     }
 }
 
-/// Convert a single SSE chunk from upstream format to Anthropic format.
-pub fn convert_stream_chunk(chunk: &str, fmt: &ApiFormat) -> Option<String> {
-    if *fmt == ApiFormat::Anthropic {
+/// Convert a single SSE chunk from upstream format to source format.
+/// Returns the content WITHOUT "data: " prefix - the caller will add it.
+pub fn convert_stream_chunk(
+    chunk: &str,
+    target_fmt: &ApiFormat,
+    source_fmt: &ApiFormat,
+) -> Option<String> {
+    // For same format, extract the content from the SSE data field
+    // and return it without the "data: " prefix (caller will add it)
+    if source_fmt == target_fmt {
+        let chunk = chunk.trim();
+        if chunk.is_empty() {
+            return None;
+        }
+
+        // Handle SSE format: "data: {...}" -> extract {...}
+        if chunk.starts_with("data: ") {
+            let content = &chunk[6..]; // Remove "data: " prefix
+            if content == "[DONE]" || content.is_empty() {
+                return Some("[DONE]".to_string());
+            }
+            return Some(content.to_string());
+        }
+
+        // Handle comments like ": OPENROUTER PROCESSING"
+        if chunk.starts_with(':') {
+            return None; // Skip SSE comments
+        }
+
         return Some(chunk.to_string());
     }
 
@@ -228,7 +367,8 @@ pub fn convert_stream_chunk(chunk: &str, fmt: &ApiFormat) -> Option<String> {
 
     let json_str = &chunk[6..];
     if json_str == "[DONE]" {
-        return Some("data: {\"type\":\"message_stop\"}\n\n".to_string());
+        // Return [DONE] without "data: " prefix - caller will handle it
+        return Some("[DONE]".to_string());
     }
 
     let data: Value = match serde_json::from_str(json_str) {
@@ -236,16 +376,28 @@ pub fn convert_stream_chunk(chunk: &str, fmt: &ApiFormat) -> Option<String> {
         Err(_) => return Some(chunk.to_string()),
     };
 
-    let content = match fmt {
-        ApiFormat::Openai => {
-            data.get("choices")
-                .and_then(|c| c.as_array())
-                .and_then(|a| a.first())
-                .and_then(|c| c.get("delta"))
-                .and_then(|d| d.get("content"))
-                .and_then(|c| c.as_str())
-                .map(|s| s.to_string())
+    // Extract text content from target format (upstream format)
+    let text = match target_fmt {
+        ApiFormat::Anthropic => {
+            // Anthropic streaming events have different types
+            // content_block_delta: {"type": "content_block_delta", "delta": {"type": "text_delta", "text": "..."}}
+            if data.get("type").and_then(|t| t.as_str()) == Some("content_block_delta") {
+                data.get("delta")
+                    .and_then(|d| d.get("text"))
+                    .and_then(|t| t.as_str())
+                    .map(|s| s.to_string())
+            } else {
+                None
+            }
         }
+        ApiFormat::Openai => data
+            .get("choices")
+            .and_then(|c| c.as_array())
+            .and_then(|a| a.first())
+            .and_then(|c| c.get("delta"))
+            .and_then(|d| d.get("content"))
+            .and_then(|c| c.as_str())
+            .map(|s| s.to_string()),
         ApiFormat::Gemini => {
             let parts = data
                 .get("candidates")
@@ -262,18 +414,39 @@ pub fn convert_stream_chunk(chunk: &str, fmt: &ApiFormat) -> Option<String> {
                     .join(" ")
             })
         }
-        _ => return Some(chunk.to_string()),
+        _ => None,
     };
 
-    if let Some(text) = content {
-        if !text.is_empty() {
-            let anthropic_chunk = json!({
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": { "type": "text_delta", "text": text }
-            });
-            return Some(format!("data: {}\n\n", anthropic_chunk));
+    if let Some(content) = text {
+        if content.is_empty() {
+            return None;
         }
+
+        let converted = match source_fmt {
+            ApiFormat::Anthropic => {
+                json!({
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": { "type": "text_delta", "text": content }
+                })
+            }
+            ApiFormat::Openai => {
+                json!({
+                    "id": "chatcmpl-unknown",
+                    "object": "chat.completion.chunk",
+                    "created": chrono::Utc::now().timestamp(),
+                    "model": "unknown",
+                    "choices": [{
+                        "index": 0,
+                        "delta": { "content": content },
+                        "finish_reason": null
+                    }]
+                })
+            }
+            _ => return Some(json_str.to_string()),
+        };
+        // Return JSON without "data: " prefix - caller will add it
+        return Some(converted.to_string());
     }
 
     None

@@ -15,14 +15,41 @@
 
 ## 🚀 快速开始
 
-### 从源码编译
+### 方式一：管理脚本（推荐）
 
 ```bash
 # 克隆项目
 git clone https://github.com/winterhuan/api-router.git
 cd api-router
 
-# 编译 (需要 Rust 环境)
+# 一键启动（自动编译、安装服务、启动）
+./apirouter.sh start
+```
+
+**首次运行会自动完成：**
+1. 检测并编译项目
+2. 安装用户级 systemd 服务
+3. 启动服务
+
+**后续使用：**
+```bash
+./apirouter.sh status    # 查看状态
+./apirouter.sh restart   # 重启服务
+./apirouter.sh logs      # 查看日志
+./apirouter.sh stop      # 停止服务
+```
+
+**或者使用 systemctl：**
+```bash
+systemctl --user start apirouter
+systemctl --user status apirouter
+systemctl --user restart apirouter
+```
+
+### 方式二：手动编译运行
+
+```bash
+# 编译
 cargo build --release
 
 # 运行
@@ -44,26 +71,31 @@ Options:
   -V, --version              显示版本
 ```
 
-### systemd 服务部署 (Linux)
-
-项目提供了 `apirouter.sh` 管理脚本，用于 systemd 服务管理：
+### 代码更新后应用
 
 ```bash
-# 查看帮助
-./apirouter.sh
+# 拉取最新代码
+git pull
 
-# 常用命令
-sudo ./apirouter.sh build     # 编译项目
-sudo ./apirouter.sh install   # 安装服务（开机自启动）
-sudo ./apirouter.sh start     # 启动服务
-sudo ./apirouter.sh stop      # 停止服务
-sudo ./apirouter.sh restart   # 重启服务
-sudo ./apirouter.sh status    # 查看服务状态
-sudo ./apirouter.sh logs      # 查看实时日志
-sudo ./apirouter.sh uninstall # 卸载服务
+# 重启服务（start 会自动检测并编译）
+./apirouter.sh build && ./apirouter.sh restart
 
-# 前台运行（用于调试）
-./apirouter.sh run
+# 或者分步操作
+./apirouter.sh build      # 重新编译
+./apirouter.sh restart    # 重启服务
+```
+
+### 安装命令到 PATH
+
+```bash
+./apirouter.sh path    # 安装到 ~/.local/bin/apirouter
+
+# 确保 PATH 包含 ~/.local/bin，添加到 ~/.bashrc：
+# export PATH="$HOME/.local/bin:$PATH"
+
+# 之后可在任意目录使用
+apirouter status
+apirouter restart
 ```
 
 ### 访问服务

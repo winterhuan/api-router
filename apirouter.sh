@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # API Router 管理脚本
+# 支持用户模式部署（无需 root 权限）
 
 set -e
 
@@ -15,10 +16,12 @@ SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
 SERVICE_NAME="apirouter"
 SERVICE_FILE="$SCRIPT_DIR/apirouter.service"
 BINARY_PATH="$SCRIPT_DIR/target/release/apirouter"
-CMD_LINK="/usr/local/bin/apirouter"
+CMD_LINK="$HOME/.local/bin/apirouter"
+USER_SERVICE_DIR="$HOME/.config/systemd/user"
+USER_SERVICE_FILE="$USER_SERVICE_DIR/$SERVICE_NAME.service"
 DEFAULT_HTTP_PROXY="http://127.0.0.1:10808"
 DEFAULT_HTTPS_PROXY="http://127.0.0.1:10808"
-DEFAULT_NO_PROXY="localhost,127.0.0.1,::1,evomap.ai,.evomap.ai,.feishu.cn,.larksuite.com,.larkoffice.com,.feishucdn.com,.bytedance.com,.volces.com,.volcengine.com,.aliyuncs.com,.qwen.ai,.minimax.io,.minimaxi.com,.moonshot.ai,.baidu.com,.baidubce.com,.deepseek.com,.nvidia.com,longcat.chat,.longcat.chat,gitcode.com"
+DEFAULT_NO_PROXY="localhost,127.0.0.1,::1,evomap.ai,.evomap.ai,.feishu.cn,.larksuite.com,.larkoffice.com,.feishucdn.com,.bytedance.com,.volces.com,.volcengine.com,.aliyuncs.com,.qwen.ai,.minimax.io,.minimaxi.com,.moonshot.ai,.baidu.com,.baidubce.com,.deepseek.com,.nvidia.com,longcat.chat,.longcat.chat,gitcode.com,.gitcode.com,.dingtalk.com"
 
 # 颜色输出
 RED='\033[0;31m'
@@ -30,31 +33,12 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-resolve_user_home() {
-    local username="$1"
-    local user_home
-    user_home="$(getent passwd "$username" 2>/dev/null | cut -d: -f6)"
-    if [ -z "$user_home" ]; then
-        user_home="/home/$username"
-    fi
-    echo "$user_home"
-}
-
 ensure_cargo() {
     if command -v cargo >/dev/null 2>&1; then
         return 0
     fi
 
-    # sudo 执行时优先尝试原调用用户的 cargo 路径
-    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-        local sudo_home
-        sudo_home="$(resolve_user_home "$SUDO_USER")"
-        if [ -x "$sudo_home/.cargo/bin/cargo" ]; then
-            export PATH="$sudo_home/.cargo/bin:$PATH"
-        fi
-    fi
-
-    # 再尝试当前用户的 cargo 路径
+    # 尝试当前用户的 cargo 路径
     if [ -x "$HOME/.cargo/bin/cargo" ]; then
         export PATH="$HOME/.cargo/bin:$PATH"
     fi
@@ -65,31 +49,12 @@ ensure_cargo() {
     fi
 }
 
-# 检查是否为 root 用户
-check_root() {
-    if [ "$EUID" -ne 0 ]; then
-        log_error "请使用 sudo 运行此脚本"
-        exit 1
-    fi
-}
-
 # 编译项目
 build() {
     log_info "编译项目..."
-
-    # 使用 sudo 执行时，尽量以原用户身份编译，避免产物被 root 接管
-    if [ "$EUID" -eq 0 ] && [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-        local sudo_home
-        sudo_home="$(resolve_user_home "$SUDO_USER")"
-        sudo -u "$SUDO_USER" env \
-            PATH="$sudo_home/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-            bash -lc "cd '$SCRIPT_DIR' && cargo build --release"
-    else
-        ensure_cargo
-        cd "$SCRIPT_DIR"
-        cargo build --release
-    fi
-
+    ensure_cargo
+    cd "$SCRIPT_DIR"
+    cargo build --release
     log_info "编译完成: $BINARY_PATH"
 }
 
@@ -158,32 +123,44 @@ collect_proxy_env() {
 
 write_service_file() {
     local target_file="$1"
-    local temp_file
-    temp_file="$(mktemp /tmp/apirouter.service.XXXXXX)"
+    mkdir -p "$(dirname "$target_file")"
+    
+    cat > "$target_file" << EOF
+[Unit]
+Description=API Router - Multi-upstream proxy with failover
+Documentation=https://github.com/winterhuan/api-router
+After=network.target
 
-    awk \
-        -v proxy_enabled="$PROXY_ENABLED" \
-        -v http_proxy="$PROXY_HTTP" \
-        -v https_proxy="$PROXY_HTTPS" \
-        -v no_proxy="$PROXY_NO_PROXY" '
-        /^Environment=(HTTP_PROXY|HTTPS_PROXY|NO_PROXY)=/ { next }
-        /^\[Install\]/ && proxy_enabled == "1" {
-            print "Environment=HTTP_PROXY=" http_proxy
-            print "Environment=HTTPS_PROXY=" https_proxy
-            print "Environment=NO_PROXY=" no_proxy
-        }
-        { print }
-    ' "$SERVICE_FILE" > "$temp_file"
+[Service]
+Type=simple
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=$BINARY_PATH --port 1999
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+Environment=RUST_LOG=info
+EOF
 
-    cp "$temp_file" "$target_file"
-    rm -f "$temp_file"
+    if [ "$PROXY_ENABLED" -eq 1 ]; then
+        cat >> "$target_file" << EOF
+Environment=HTTP_PROXY=$PROXY_HTTP
+Environment=HTTPS_PROXY=$PROXY_HTTPS
+Environment=NO_PROXY=$PROXY_NO_PROXY
+EOF
+    fi
+
+    cat >> "$target_file" << EOF
+
+[Install]
+WantedBy=default.target
+EOF
 }
 
-# 安装 systemd 服务
+# 安装用户级 systemd 服务
 install() {
     local proxy_mode
-
-    check_root
     proxy_mode="$(normalize_proxy_mode "${1:-ask}")"
     collect_proxy_env "$proxy_mode"
     
@@ -193,9 +170,9 @@ install() {
         build
     fi
     
-    # 复制服务文件
-    log_info "安装 systemd 服务..."
-    write_service_file "/etc/systemd/system/$SERVICE_NAME.service"
+    # 写入用户服务文件
+    log_info "安装用户级 systemd 服务..."
+    write_service_file "$USER_SERVICE_FILE"
 
     if [ "$PROXY_ENABLED" -eq 1 ]; then
         log_info "已启用代理环境变量"
@@ -204,76 +181,76 @@ install() {
     fi
     
     # 重新加载 systemd
-    systemctl daemon-reload
+    systemctl --user daemon-reload
     
-    # 启用开机自启动
-    systemctl enable $SERVICE_NAME
+    # 启用开机自启动（用户登录后）
+    systemctl --user enable $SERVICE_NAME
 
     # 安装全局命令
     install_path
     
-    log_info "服务安装完成"
-    log_info "使用 'sudo apirouter start' 启动服务"
+    log_info "服务安装完成（用户模式）"
+    log_info "使用 'apirouter start' 启动服务"
 }
 
-# 安装全局命令到 PATH
+# 安装命令到用户 PATH
 install_path() {
-    check_root
+    mkdir -p "$(dirname "$CMD_LINK")"
     chmod +x "$SCRIPT_DIR/apirouter.sh"
     ln -sf "$SCRIPT_DIR/apirouter.sh" "$CMD_LINK"
-    log_info "已安装全局命令: $CMD_LINK -> $SCRIPT_DIR/apirouter.sh"
-    log_info "现在可在任意目录运行: sudo apirouter status"
+    log_info "已安装命令: $CMD_LINK -> $SCRIPT_DIR/apirouter.sh"
+    log_info "请确保 ~/.local/bin 在 PATH 中"
+    
+    # 检查 PATH
+    if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+        log_warn "~/.local/bin 不在 PATH 中，请添加到 ~/.bashrc:"
+        echo '  export PATH="$HOME/.local/bin:$PATH"'
+    fi
 }
 
 # 卸载服务
 uninstall() {
-    check_root
-    
     log_info "停止服务..."
-    systemctl stop $SERVICE_NAME 2>/dev/null || true
+    systemctl --user stop $SERVICE_NAME 2>/dev/null || true
     
     log_info "禁用开机自启动..."
-    systemctl disable $SERVICE_NAME 2>/dev/null || true
+    systemctl --user disable $SERVICE_NAME 2>/dev/null || true
     
     log_info "删除服务文件..."
-    rm -f /etc/systemd/system/$SERVICE_NAME.service
-
-    log_info "删除全局命令..."
+    rm -f "$USER_SERVICE_FILE"
+    
+    log_info "删除命令链接..."
     rm -f "$CMD_LINK"
     
-    systemctl daemon-reload
+    systemctl --user daemon-reload
     
     log_info "服务已卸载"
 }
 
 # 启动服务
 start() {
-    check_root
-    
-    if ! systemctl is-enabled $SERVICE_NAME &>/dev/null; then
+    if [ ! -f "$USER_SERVICE_FILE" ]; then
         log_warn "服务未安装，正在安装..."
         install
     fi
     
     log_info "启动服务..."
-    systemctl start $SERVICE_NAME
+    systemctl --user start $SERVICE_NAME
     sleep 1
     status
 }
 
 # 停止服务
 stop() {
-    check_root
     log_info "停止服务..."
-    systemctl stop $SERVICE_NAME
+    systemctl --user stop $SERVICE_NAME
     log_info "服务已停止"
 }
 
 # 重启服务
 restart() {
-    check_root
     log_info "重启服务..."
-    systemctl restart $SERVICE_NAME
+    systemctl --user restart $SERVICE_NAME
     sleep 1
     status
 }
@@ -285,13 +262,13 @@ status() {
     echo "         API Router 服务状态"
     echo "========================================="
     
-    if systemctl is-active $SERVICE_NAME &>/dev/null; then
+    if systemctl --user is-active $SERVICE_NAME &>/dev/null; then
         echo -e "状态:     ${GREEN}运行中${NC}"
     else
         echo -e "状态:     ${RED}已停止${NC}"
     fi
     
-    if systemctl is-enabled $SERVICE_NAME &>/dev/null; then
+    if systemctl --user is-enabled $SERVICE_NAME &>/dev/null; then
         echo -e "自启动:   ${GREEN}已启用${NC}"
     else
         echo -e "自启动:   ${YELLOW}未启用${NC}"
@@ -305,14 +282,14 @@ status() {
     # 显示最近日志
     echo "最近日志:"
     echo "-----------------------------------------"
-    journalctl -u $SERVICE_NAME -n 10 --no-pager 2>/dev/null || echo "无法读取日志"
+    journalctl --user -u $SERVICE_NAME -n 10 --no-pager 2>/dev/null || echo "无法读取日志"
     echo ""
 }
 
 # 查看日志
 logs() {
     echo "查看实时日志 (按 Ctrl+C 退出):"
-    journalctl -u $SERVICE_NAME -f
+    journalctl --user -u $SERVICE_NAME -f
 }
 
 # 直接运行（前台模式，用于调试）
@@ -327,14 +304,14 @@ run() {
 
 # 显示帮助
 usage() {
-    echo "API Router 管理脚本"
+    echo "API Router 管理脚本（用户模式）"
     echo ""
     echo "用法: $0 <命令> [参数]"
     echo ""
     echo "命令:"
     echo "  build     编译项目"
-    echo "  path      安装全局命令到 PATH（/usr/local/bin/apirouter）"
-    echo "  install   安装 systemd 服务（开机自启动）"
+    echo "  path      安装命令到用户 PATH（~/.local/bin/apirouter）"
+    echo "  install   安装用户级 systemd 服务（登录后自启动）"
     echo "            参数: --with-proxy | --no-proxy"
     echo "  uninstall 卸载服务"
     echo "  start     启动服务"
@@ -343,6 +320,8 @@ usage() {
     echo "  status    查看服务状态"
     echo "  logs      查看实时日志"
     echo "  run       前台运行（用于调试）"
+    echo ""
+    echo "无需 root 权限，所有服务以当前用户身份运行。"
     echo ""
 }
 

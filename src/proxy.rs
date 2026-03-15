@@ -4,7 +4,7 @@ use crate::config::{ApiFormat, AppState, LogStore, RequestLog, Upstream, Upstrea
 use crate::converters::{convert_stream_chunk, from_upstream, to_upstream};
 use axum::{
     http::{HeaderMap, Method, StatusCode},
-    response::{IntoResponse, Response, sse::Event},
+    response::{sse::Event, IntoResponse, Response},
 };
 use dashmap::DashMap;
 use futures::stream::StreamExt;
@@ -25,7 +25,7 @@ lazy_static::lazy_static! {
         let mut builder = Client::builder()
             .timeout(Duration::from_secs(120))
             .no_proxy();
-        
+
         // 支持从环境变量读取代理配置
         if let Ok(proxy_url) = std::env::var("HTTPS_PROXY")
             .or_else(|_| std::env::var("https_proxy"))
@@ -63,7 +63,7 @@ lazy_static::lazy_static! {
                 builder = builder.proxy(proxy);
             }
         }
-        
+
         builder.build().expect("Failed to create HTTP client")
     };
 }
@@ -96,10 +96,12 @@ pub fn get_available_upstreams(upstreams: &[Upstream]) -> Vec<Upstream> {
 
 /// Record a failure and open circuit if threshold reached
 fn record_failure(upstream_id: &str) {
-    let mut entry = CIRCUIT_BREAKER.entry(upstream_id.to_string()).or_insert(CircuitBreaker {
-        failures: 0,
-        open_until: Instant::now(),
-    });
+    let mut entry = CIRCUIT_BREAKER
+        .entry(upstream_id.to_string())
+        .or_insert(CircuitBreaker {
+            failures: 0,
+            open_until: Instant::now(),
+        });
 
     entry.failures += 1;
     if entry.failures >= 3 {
@@ -127,14 +129,33 @@ fn apply_model_map(body: &mut serde_json::Value, upstream: &Upstream) {
     }
 }
 
-/// Build upstream URL
+/// Build full upstream URL
 fn build_upstream_url(base_url: &str, path: &str, endpoint: Option<&str>, query: &str) -> String {
     let base = base_url.trim_end_matches('/');
-    let default_path = format!("/{}", path.trim_start_matches('/'));
-    let target_path = endpoint.unwrap_or(&default_path);
-    let mut url = format!("{}{}", base, target_path);
+
+    // Determine the path to append
+    let final_path = if let Some(e) = endpoint { e } else { path };
+
+    // Prevent duplication: if base already ends with final_path, don't append it again.
+    // Example: base="http://api.com/v1/messages", final_path="/messages" -> "http://api.com/v1/messages"
+    let clean_final_path = if final_path.starts_with('/') {
+        final_path.to_string()
+    } else {
+        format!("/{}", final_path)
+    };
+
+    let mut url = if base.ends_with(&clean_final_path) {
+        base.to_string()
+    } else {
+        format!("{}{}", base, clean_final_path)
+    };
+
     if !query.is_empty() {
-        url.push('?');
+        if !url.contains('?') {
+            url.push('?');
+        } else if !url.ends_with('&') {
+            url.push('&');
+        }
         url.push_str(query);
     }
     url
@@ -145,62 +166,77 @@ fn build_upstream_headers(
     headers: &HeaderMap,
     api_key: Option<&str>,
     api_format: &ApiFormat,
+    base_url: &str,
 ) -> reqwest::header::HeaderMap {
     let mut req_headers = reqwest::header::HeaderMap::new();
 
+    // 1. Pass through ONLY essential headers from client
+    // We strictly limit this to prevent "browser-like" headers from interfering with API auth
+    let whitelist = ["user-agent"];
     for (key, value) in headers.iter() {
         let key_lower = key.as_str().to_lowercase();
-        if [
-            "host",
-            "content-length",
-            "authorization",
-            "x-api-key",
-            "cf-connecting-ip",
-            "cf-ray",
-            "cf-ipcountry",
-            "x-forwarded-proto",
-            "x-forwarded-host",
-            "x-real-ip",
-        ]
-        .contains(&key_lower.as_str())
-        {
-            continue;
+        if whitelist.contains(&key_lower.as_str()) {
+            req_headers.insert(key.clone(), value.clone());
         }
-        req_headers.insert(key.clone(), value.clone());
     }
 
+    // 2. Add API key based on format and provider
     if let Some(key) = api_key {
-        req_headers.insert(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {}", key).parse().unwrap(),
-        );
-        req_headers.insert("x-api-key", key.parse().unwrap());
+        match api_format {
+            ApiFormat::Anthropic => {
+                let is_official = base_url.contains("anthropic.com");
+
+                if is_official {
+                    // Official Anthropic: use x-api-key
+                    req_headers.insert("x-api-key", key.parse().unwrap());
+                } else {
+                    // Third-party providers (LongCat, etc.): use Bearer token ONLY
+                    // This EXACTLY matches the curl provided by the user
+                    req_headers.insert(
+                        reqwest::header::AUTHORIZATION,
+                        format!("Bearer {}", key).parse().unwrap(),
+                    );
+                }
+                // Always add version for Anthropic format
+                req_headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
+            }
+            ApiFormat::Openai | ApiFormat::OpenaiResponse => {
+                req_headers.insert(
+                    reqwest::header::AUTHORIZATION,
+                    format!("Bearer {}", key).parse().unwrap(),
+                );
+            }
+            ApiFormat::Gemini => {
+                req_headers.insert("x-goog-api-key", key.parse().unwrap());
+            }
+        }
     }
 
-    if *api_format == ApiFormat::Anthropic {
+    // 3. Special headers ONLY for OpenRouter
+    if base_url.contains("openrouter.ai") {
         req_headers.insert(
-            "anthropic-version",
-            headers
-                .get("anthropic-version")
-                .and_then(|v| v.to_str().ok())
-                .unwrap_or("2023-06-01")
-                .parse()
-                .unwrap(),
+            "HTTP-Referer",
+            "https://github.com/apirouter".parse().unwrap(),
         );
+        req_headers.insert("X-Title", "APIRouter".parse().unwrap());
     }
 
     req_headers
 }
 
 /// Result of a single upstream attempt
-enum AttemptResult {
+pub enum AttemptResult {
     Success(Response),
-    RetryableError { status: u16, body: Vec<u8>, content_type: String },
+    RetryableError {
+        status: u16,
+        body: Vec<u8>,
+        content_type: String,
+    },
     FatalError,
 }
 
 /// Try a single key for an upstream
-async fn try_upstream_key(
+pub async fn try_upstream_key(
     upstream: &Upstream,
     api_key: Option<&str>,
     path: &str,
@@ -209,6 +245,7 @@ async fn try_upstream_key(
     query: &str,
     body_json: &Option<serde_json::Value>,
     body_bytes: &Option<Vec<u8>>,
+    source_fmt: &ApiFormat,
     should_convert: bool,
     is_stream: bool,
     debug_mode: bool,
@@ -218,11 +255,13 @@ async fn try_upstream_key(
 
     let (request_body, endpoint): (Option<serde_json::Value>, Option<String>) = if should_convert {
         let mut body = body_json.clone().unwrap();
+        // 始终应用模型映射，不论是 OpenAI 还是 Anthropic
         apply_model_map(&mut body, upstream);
-        let (converted, endpoint) = to_upstream(&body, &api_format);
-        (Some(converted), Some(endpoint.to_string()))
+        let (converted, endpoint) = to_upstream(&body, source_fmt, &api_format);
+        (Some(converted), Some(endpoint))
     } else if let Some(ref body) = body_json {
         let mut body = body.clone();
+        // 始终应用模型映射
         apply_model_map(&mut body, upstream);
         (Some(body), None)
     } else {
@@ -231,23 +270,62 @@ async fn try_upstream_key(
 
     let endpoint_str = endpoint.as_deref();
     let url = build_upstream_url(&upstream.base_url, path, endpoint_str, query);
-    let req_headers = build_upstream_headers(headers, api_key, &api_format);
+    let req_headers = build_upstream_headers(headers, api_key, &api_format, &upstream.base_url);
+
+    // Prepare debug info for logging
+    let mut logged_headers = std::collections::HashMap::new();
+    for (name, value) in req_headers.iter() {
+        let val_str = value.to_str().unwrap_or("[binary]");
+        let masked_val =
+            if name == "authorization" || name == "x-api-key" || name == "x-goog-api-key" {
+                if val_str.len() > 12 {
+                    format!("{}...{}", &val_str[..8], &val_str[val_str.len() - 4..])
+                } else {
+                    "********".to_string()
+                }
+            } else {
+                val_str.to_string()
+            };
+        logged_headers.insert(name.as_str().to_string(), masked_val);
+    }
+
+    let logged_body = if let Some(ref b) = request_body {
+        Some(b.to_string())
+    } else if let Some(ref b) = body_bytes {
+        Some(String::from_utf8_lossy(b).to_string())
+    } else {
+        None
+    };
+
+    tracing::info!(
+        "[PROXY] upstream_request: upstream_id={}, method={}, url={}, format={:?}",
+        upstream_id,
+        method,
+        url,
+        api_format
+    );
 
     if debug_mode {
-        tracing::info!(
-            "[PROXY] upstream_request: upstream_id={}, key_index={}, url={}",
-            upstream_id,
-            api_key.map(|k| if k.len() > 10 { &k[..10] } else { k }).unwrap_or("none"),
-            url
+        tracing::debug!(
+            "[PROXY] headers: {:?}, content-type: {:?}",
+            req_headers.keys().map(|k| k.as_str()).collect::<Vec<_>>(),
+            req_headers.get("content-type")
         );
+        if let Some(ref b) = request_body {
+            tracing::debug!("[PROXY] body: {}", b);
+        }
     }
 
     // Build request
-    let mut request_builder = HTTP_CLIENT.request(method.clone(), &url).headers(req_headers);
+    let mut request_builder = HTTP_CLIENT
+        .request(method.clone(), &url)
+        .headers(req_headers);
 
     if let Some(ref body) = request_body {
         request_builder = request_builder.json(body);
     } else if let Some(ref bytes) = body_bytes {
+        // Ensure Content-Type is set when sending raw bytes
+        request_builder = request_builder.header("content-type", "application/json");
         request_builder = request_builder.body(bytes.clone());
     }
 
@@ -279,19 +357,40 @@ async fn try_upstream_key(
                             url: Some(url.clone()),
                             status_code: status,
                             error: Some(format!("HTTP error {}", status)),
+                            request_headers: Some(logged_headers.clone()),
+                            request_body: logged_body.clone(),
                             response_body: Some(truncated),
                         };
-                        (AttemptResult::RetryableError { status, body: bytes.to_vec(), content_type }, Some(attempt))
+                        (
+                            AttemptResult::RetryableError {
+                                status,
+                                body: bytes.to_vec(),
+                                content_type,
+                            },
+                            Some(attempt),
+                        )
                     }
                     Err(e) => {
                         let attempt = UpstreamAttempt {
                             upstream_id: upstream_id.clone(),
                             url: Some(url.clone()),
                             status_code: status,
-                            error: Some(format!("HTTP error {}, failed to read body: {}", status, e)),
+                            error: Some(format!(
+                                "HTTP error {}, failed to read body: {}",
+                                status, e
+                            )),
+                            request_headers: Some(logged_headers.clone()),
+                            request_body: logged_body.clone(),
                             response_body: None,
                         };
-                        (AttemptResult::RetryableError { status, body: vec![], content_type }, Some(attempt))
+                        (
+                            AttemptResult::RetryableError {
+                                status,
+                                body: vec![],
+                                content_type,
+                            },
+                            Some(attempt),
+                        )
                     }
                 };
                 response_body
@@ -313,23 +412,70 @@ async fn try_upstream_key(
                         url: Some(url.clone()),
                         status_code: status,
                         error: None,
+                        request_headers: Some(logged_headers.clone()),
+                        request_body: logged_body.clone(),
                         response_body: None,
                     };
-                    let convert_format = if should_convert { api_format } else { ApiFormat::Anthropic };
-                    let stream = resp.bytes_stream().filter_map(move |chunk_result| {
-                        let format = convert_format.clone();
-                        async move {
-                            match chunk_result {
-                                Ok(chunk) => {
-                                    let chunk_str = String::from_utf8_lossy(&chunk);
-                                    let converted = convert_stream_chunk(&chunk_str, &format);
-                                    converted.map(|s| Ok::<_, std::convert::Infallible>(Event::default().data(s)))
+                    let target_fmt = if should_convert {
+                        api_format
+                    } else {
+                        source_fmt.clone()
+                    };
+                    let source_fmt_inner = source_fmt.clone();
+                    
+                    // Line-based SSE parsing to handle chunked data correctly
+                    let stream = futures::stream::unfold(
+                        (resp.bytes_stream(), String::new(), target_fmt, source_fmt_inner),
+                        |(mut byte_stream, mut buffer, t_fmt, s_fmt)| async move {
+                            loop {
+                                // Try to find a complete line in buffer
+                                if let Some(newline_pos) = buffer.find('\n') {
+                                    let line = buffer[..newline_pos].trim().to_string();
+                                    buffer = buffer[newline_pos + 1..].to_string();
+                                    
+                                    // Skip empty lines and SSE comments
+                                    if line.is_empty() || line.starts_with(':') {
+                                        continue;
+                                    }
+                                    
+                                    // Process the line
+                                    if let Some(converted) = convert_stream_chunk(&line, &t_fmt, &s_fmt) {
+                                        return Some((
+                                            Ok::<_, std::convert::Infallible>(Event::default().data(converted)),
+                                            (byte_stream, buffer, t_fmt, s_fmt),
+                                        ));
+                                    }
+                                    continue;
                                 }
-                                Err(e) => Some(Ok(Event::default().data(format!("Error: {}", e)))),
+                                
+                                // Need more data from stream
+                                match byte_stream.next().await {
+                                    Some(Ok(chunk)) => {
+                                        buffer.push_str(&String::from_utf8_lossy(&chunk));
+                                    }
+                                    Some(Err(_)) | None => {
+                                        // Stream ended
+                                        if !buffer.trim().is_empty() {
+                                            if let Some(converted) = convert_stream_chunk(buffer.trim(), &t_fmt, &s_fmt) {
+                                                return Some((
+                                                    Ok::<_, std::convert::Infallible>(Event::default().data(converted)),
+                                                    (byte_stream, String::new(), t_fmt, s_fmt),
+                                                ));
+                                            }
+                                        }
+                                        return None;
+                                    }
+                                }
                             }
-                        }
-                    });
-                    (AttemptResult::Success(axum::response::sse::Sse::new(stream).into_response()), Some(attempt))
+                        },
+                    );
+                    
+                    (
+                        AttemptResult::Success(
+                            axum::response::sse::Sse::new(stream).into_response(),
+                        ),
+                        Some(attempt),
+                    )
                 } else {
                     let content_type = resp
                         .headers()
@@ -340,32 +486,41 @@ async fn try_upstream_key(
 
                     match resp.bytes().await {
                         Ok(response_bytes) => {
-                            let (response_content, media_type) =
-                                if should_convert && content_type.contains("application/json") {
-                                    if let Ok(parsed) = serde_json::from_slice::<serde_json::Value>(&response_bytes) {
-                                        let converted = from_upstream(&parsed, &api_format);
-                                        (
-                                            serde_json::to_vec(&converted).unwrap_or_else(|_| response_bytes.to_vec()),
-                                            "application/json",
-                                        )
-                                    } else {
-                                        (
-                                            response_bytes.to_vec(),
-                                            content_type.split(';').next().unwrap_or("application/json"),
-                                        )
-                                    }
+                            let (response_content, media_type) = if should_convert
+                                && content_type.contains("application/json")
+                            {
+                                if let Ok(parsed) =
+                                    serde_json::from_slice::<serde_json::Value>(&response_bytes)
+                                {
+                                    let converted = from_upstream(&parsed, &api_format, source_fmt);
+                                    (
+                                        serde_json::to_vec(&converted)
+                                            .unwrap_or_else(|_| response_bytes.to_vec()),
+                                        "application/json",
+                                    )
                                 } else {
                                     (
                                         response_bytes.to_vec(),
-                                        content_type.split(';').next().unwrap_or("application/json"),
+                                        content_type
+                                            .split(';')
+                                            .next()
+                                            .unwrap_or("application/json"),
                                     )
-                                };
+                                }
+                            } else {
+                                (
+                                    response_bytes.to_vec(),
+                                    content_type.split(';').next().unwrap_or("application/json"),
+                                )
+                            };
 
                             let attempt = UpstreamAttempt {
                                 upstream_id: upstream_id.clone(),
                                 url: Some(url.clone()),
                                 status_code: status,
                                 error: None,
+                                request_headers: Some(logged_headers.clone()),
+                                request_body: logged_body.clone(),
                                 response_body: None,
                             };
 
@@ -384,6 +539,8 @@ async fn try_upstream_key(
                                 url: Some(url),
                                 status_code: 502,
                                 error: Some(format!("Failed to read response: {}", e)),
+                                request_headers: Some(logged_headers.clone()),
+                                request_body: logged_body.clone(),
                                 response_body: None,
                             };
                             (AttemptResult::FatalError, Some(attempt))
@@ -405,6 +562,8 @@ async fn try_upstream_key(
                 url: Some(url),
                 status_code: 502,
                 error: Some(error_msg),
+                request_headers: Some(logged_headers.clone()),
+                request_body: logged_body.clone(),
                 response_body: None,
             };
             (AttemptResult::FatalError, Some(attempt))
@@ -455,8 +614,23 @@ pub async fn proxy_request(
         .as_ref()
         .and_then(|b| serde_json::from_slice(b).ok());
 
-    let model: Option<String> = body_json.as_ref().and_then(|b| b.get("model")?.as_str().map(|s| s.to_string()));
-    let should_convert = method == Method::POST && path.trim_matches('/') == "messages" && body_json.is_some();
+    let model: Option<String> = body_json
+        .as_ref()
+        .and_then(|b| b.get("model")?.as_str().map(|s| s.to_string()));
+
+    // Determine source format from path
+    let source_fmt = if path.trim_matches('/') == "messages" {
+        ApiFormat::Anthropic
+    } else if path.trim_matches('/') == "chat/completions" {
+        ApiFormat::Openai
+    } else {
+        ApiFormat::Anthropic // Default fallback
+    };
+
+    let should_convert = method == Method::POST
+        && (path.trim_matches('/') == "messages" || path.trim_matches('/') == "chat/completions")
+        && body_json.is_some();
+
     let is_stream = body_json
         .as_ref()
         .and_then(|b| b.get("stream")?.as_bool())
@@ -464,12 +638,13 @@ pub async fn proxy_request(
 
     if debug_mode {
         tracing::info!(
-            "[PROXY] request: method={}, path=/v1/{}, available={:?}, convert={}, stream={}",
+            "[PROXY] request: method={}, path=/v1/{}, available={:?}, convert={}, stream={}, source_fmt={:?}",
             method,
             path,
             available.iter().map(|u| u.id.as_str()).collect::<Vec<_>>(),
             should_convert,
-            is_stream
+            is_stream,
+            source_fmt
         );
     }
 
@@ -496,6 +671,7 @@ pub async fn proxy_request(
                 query,
                 &body_json,
                 &body_bytes,
+                &source_fmt,
                 should_convert,
                 is_stream,
                 debug_mode,
@@ -523,7 +699,11 @@ pub async fn proxy_request(
                     log_store.add_log(log).await;
                     return response;
                 }
-                AttemptResult::RetryableError { status, body, content_type } => {
+                AttemptResult::RetryableError {
+                    status,
+                    body,
+                    content_type,
+                } => {
                     record_failure(&upstream.id);
                     last_upstream_failure = Some((upstream.id.clone(), status, body, content_type));
                     // Continue to next key
@@ -566,7 +746,10 @@ pub async fn proxy_request(
         path: format!("/v1/{}", path),
         model,
         upstream_id: None,
-        status_code: last_upstream_failure.as_ref().map(|(_, s, _, _)| *s).unwrap_or(502),
+        status_code: last_upstream_failure
+            .as_ref()
+            .map(|(_, s, _, _)| *s)
+            .unwrap_or(502),
         duration_ms: Some(start_time.elapsed().as_millis() as u64),
         error: Some(error_summary),
         attempts,
@@ -579,7 +762,10 @@ pub async fn proxy_request(
             [
                 ("content-type", content_type.as_str()),
                 ("X-APIRouter-All-Upstreams-Failed", "1"),
-                ("X-APIRouter-Upstream-Id", Box::leak(upstream_id.into_boxed_str()) as &'static str),
+                (
+                    "X-APIRouter-Upstream-Id",
+                    Box::leak(upstream_id.into_boxed_str()) as &'static str,
+                ),
             ],
             body,
         )

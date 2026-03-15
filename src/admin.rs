@@ -67,7 +67,11 @@ pub async fn verify_password_handler(state: Arc<AppState>, headers: HeaderMap) -
 /// GET /admin/config - Get full configuration
 pub async fn get_config(state: Arc<AppState>, headers: HeaderMap) -> Response {
     if !verify_admin(&headers, &state).await {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     }
 
     let config = state.config.read().await;
@@ -79,9 +83,17 @@ pub async fn get_config(state: Arc<AppState>, headers: HeaderMap) -> Response {
 }
 
 /// POST /admin/config - Update configuration
-pub async fn update_config(state: Arc<AppState>, headers: HeaderMap, Json(payload): Json<ConfigUpdate>) -> Response {
+pub async fn update_config(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ConfigUpdate>,
+) -> Response {
     if !verify_admin(&headers, &state).await {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     }
 
     {
@@ -102,7 +114,11 @@ pub async fn update_config(state: Arc<AppState>, headers: HeaderMap, Json(payloa
 
     if let Err(e) = state.save_config().await {
         tracing::error!("Failed to save config: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Failed to save config" }))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Failed to save config" })),
+        )
+            .into_response();
     }
 
     // Clear circuit breaker state to ensure new config takes effect immediately
@@ -114,7 +130,11 @@ pub async fn update_config(state: Arc<AppState>, headers: HeaderMap, Json(payloa
 /// GET /admin/client-keys - Get all client API keys
 pub async fn get_client_keys(state: Arc<AppState>, headers: HeaderMap) -> Response {
     if !verify_admin(&headers, &state).await {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     }
 
     let config = state.config.read().await;
@@ -126,9 +146,17 @@ pub async fn get_client_keys(state: Arc<AppState>, headers: HeaderMap) -> Respon
 }
 
 /// POST /admin/client-keys - Update client API keys
-pub async fn update_client_keys(state: Arc<AppState>, headers: HeaderMap, Json(payload): Json<ClientKeysUpdate>) -> Response {
+pub async fn update_client_keys(
+    state: Arc<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<ClientKeysUpdate>,
+) -> Response {
     if !verify_admin(&headers, &state).await {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     }
 
     {
@@ -145,7 +173,11 @@ pub async fn update_client_keys(state: Arc<AppState>, headers: HeaderMap, Json(p
 
     if let Err(e) = state.save_config().await {
         tracing::error!("Failed to save config: {}", e);
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": "Failed to save config" }))).into_response();
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": "Failed to save config" })),
+        )
+            .into_response();
     }
 
     Json(GenericResponse { ok: true }).into_response()
@@ -154,7 +186,11 @@ pub async fn update_client_keys(state: Arc<AppState>, headers: HeaderMap, Json(p
 /// POST /admin/generate-key - Generate a new client API key
 pub async fn generate_key(state: Arc<AppState>, headers: HeaderMap) -> Response {
     if !verify_admin(&headers, &state).await {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     }
 
     let new_key = generate_api_key();
@@ -162,9 +198,17 @@ pub async fn generate_key(state: Arc<AppState>, headers: HeaderMap) -> Response 
 }
 
 /// GET /admin/logs - Get request logs
-pub async fn get_logs(state: Arc<AppState>, log_store: Arc<LogStore>, headers: HeaderMap) -> Response {
+pub async fn get_logs(
+    state: Arc<AppState>,
+    log_store: Arc<LogStore>,
+    headers: HeaderMap,
+) -> Response {
     if !verify_admin(&headers, &state).await {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     }
 
     let logs = log_store.get_logs(100).await;
@@ -172,11 +216,204 @@ pub async fn get_logs(state: Arc<AppState>, log_store: Arc<LogStore>, headers: H
 }
 
 /// DELETE /admin/logs - Clear all request logs
-pub async fn clear_logs(state: Arc<AppState>, log_store: Arc<LogStore>, headers: HeaderMap) -> Response {
+pub async fn clear_logs(
+    state: Arc<AppState>,
+    log_store: Arc<LogStore>,
+    headers: HeaderMap,
+) -> Response {
     if !verify_admin(&headers, &state).await {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" }))).into_response();
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
     }
 
     log_store.clear_logs().await;
     Json(GenericResponse { ok: true }).into_response()
+}
+
+/// Model test request
+#[derive(Debug, Deserialize)]
+pub struct ModelTestRequest {
+    pub upstream_id: Option<String>,
+    pub model: String,
+    pub prompt: String,
+    #[serde(default)]
+    pub stream: bool,
+    pub source_format: Option<crate::config::ApiFormat>,
+}
+
+/// POST /admin/test-model - Test a model or specific upstream
+pub async fn test_model(
+    state: Arc<AppState>,
+    log_store: Arc<LogStore>,
+    headers: HeaderMap,
+    Json(payload): Json<ModelTestRequest>,
+) -> Response {
+    if !verify_admin(&headers, &state).await {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "Unauthorized" })),
+        )
+            .into_response();
+    }
+
+    let source_fmt = payload
+        .source_format
+        .unwrap_or(crate::config::ApiFormat::Anthropic);
+
+    let body = match source_fmt {
+        crate::config::ApiFormat::Anthropic => {
+            serde_json::json!({
+                "model": payload.model,
+                "messages": [
+                    { "role": "user", "content": payload.prompt }
+                ],
+                "stream": payload.stream,
+                "max_tokens": 1024
+            })
+        }
+        _ => {
+            // Default to OpenAI style for other formats in test
+            serde_json::json!({
+                "model": payload.model,
+                "messages": [
+                    { "role": "user", "content": payload.prompt }
+                ],
+                "stream": payload.stream,
+                "max_tokens": 1024
+            })
+        }
+    };
+
+    let body_bytes = serde_json::to_vec(&body).unwrap();
+    let path = match source_fmt {
+        crate::config::ApiFormat::Openai => "chat/completions",
+        _ => "messages",
+    };
+
+    // If upstream_id is provided, we only use that upstream
+    // Otherwise, we use the normal proxy logic
+    if let Some(upstream_id) = payload.upstream_id {
+        let config = state.config.read().await;
+        let upstream = config.upstreams.iter().find(|u| u.id == upstream_id);
+
+        if let Some(upstream) = upstream {
+            let upstream = upstream.clone();
+            drop(config); // Release lock
+
+            let mut last_result = None;
+            let mut all_attempts = Vec::new();
+            let start_time = std::time::Instant::now();
+
+            // Try all keys for the specified upstream
+            let keys = if upstream.keys.is_empty() {
+                vec![None]
+            } else {
+                upstream
+                    .keys
+                    .iter()
+                    .map(|s| Some(s.as_str()))
+                    .collect::<Vec<_>>()
+            };
+
+            for api_key in keys {
+                let (result, attempt) = crate::proxy::try_upstream_key(
+                    &upstream,
+                    api_key,
+                    path, // Use the path determined by source_fmt
+                    &axum::http::Method::POST,
+                    &headers,
+                    "",
+                    &Some(body.clone()),
+                    &Some(body_bytes.clone()),
+                    &source_fmt, // Use the selected source format
+                    true,
+                    payload.stream,
+                    true,
+                )
+                .await;
+
+                if let Some(a) = attempt {
+                    all_attempts.push(a);
+                }
+
+                match result {
+                    crate::proxy::AttemptResult::Success(resp) => {
+                        // Record log for successful test request
+                        let log = crate::config::RequestLog {
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            method: "POST".to_string(),
+                            path: format!("/admin/test-model ({})", upstream.id),
+                            model: Some(payload.model.clone()),
+                            upstream_id: Some(upstream.id.clone()),
+                            status_code: resp.status().as_u16(),
+                            duration_ms: Some(start_time.elapsed().as_millis() as u64),
+                            error: None,
+                            attempts: all_attempts,
+                        };
+                        log_store.add_log(log).await;
+                        return resp;
+                    }
+                    crate::proxy::AttemptResult::RetryableError {
+                        status,
+                        body,
+                        content_type,
+                    } => {
+                        last_result = Some((status, body, content_type));
+                        // Continue to next key
+                    }
+                    crate::proxy::AttemptResult::FatalError => {
+                        last_result = None;
+                        break;
+                    }
+                }
+            }
+
+            // If we reached here, all keys failed or fatal error occurred
+            let status_code = last_result.as_ref().map(|r| r.0).unwrap_or(502);
+            let log = crate::config::RequestLog {
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                method: "POST".to_string(),
+                path: format!("/admin/test-model ({})", upstream.id),
+                model: Some(payload.model.clone()),
+                upstream_id: Some(upstream.id.clone()),
+                status_code,
+                duration_ms: Some(start_time.elapsed().as_millis() as u64),
+                error: Some(format!("All keys failed for test request")),
+                attempts: all_attempts,
+            };
+            log_store.add_log(log).await;
+
+            if let Some((status, body, content_type)) = last_result {
+                (
+                    StatusCode::from_u16(status).unwrap_or(StatusCode::BAD_GATEWAY),
+                    [("content-type", content_type)],
+                    body,
+                )
+                    .into_response()
+            } else {
+                (
+                    StatusCode::BAD_GATEWAY,
+                    "Fatal error during upstream attempt",
+                )
+                    .into_response()
+            }
+        } else {
+            (StatusCode::NOT_FOUND, "Upstream not found").into_response()
+        }
+    } else {
+        // Normal proxy logic via determined endpoint
+        crate::proxy::proxy_request(
+            path,
+            axum::http::Method::POST,
+            headers, // Pass original headers to preserve UA etc.
+            "",
+            Some(body_bytes),
+            state,
+            log_store,
+        )
+        .await
+    }
 }

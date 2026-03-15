@@ -8,7 +8,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Default admin password: "admin" (SHA-256 hash)
-const DEFAULT_PASSWORD_HASH: &str = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
+const DEFAULT_PASSWORD_HASH: &str =
+    "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918";
 
 /// Upstream configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +71,10 @@ pub struct UpstreamAttempt {
     pub status_code: u16,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_headers: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_body: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_body: Option<String>,
 }

@@ -64,7 +64,9 @@ async fn main() {
         .init();
 
     let args = Args::parse();
-    let addr: SocketAddr = format!("{}:{}", args.host, args.port).parse().expect("Invalid address");
+    let addr: SocketAddr = format!("{}:{}", args.host, args.port)
+        .parse()
+        .expect("Invalid address");
 
     // Initialize state
     let services = AppServices {
@@ -82,10 +84,17 @@ async fn main() {
         .route("/", get(root))
         // Admin routes
         .route("/admin/verify", post(admin_verify))
-        .route("/admin/config", get(admin_config_get).post(admin_config_update))
-        .route("/admin/client-keys", get(admin_client_keys_get).post(admin_client_keys_update))
+        .route(
+            "/admin/config",
+            get(admin_config_get).post(admin_config_update),
+        )
+        .route(
+            "/admin/client-keys",
+            get(admin_client_keys_get).post(admin_client_keys_update),
+        )
         .route("/admin/generate-key", post(admin_generate_key))
         .route("/admin/logs", get(admin_logs_get).delete(admin_logs_clear))
+        .route("/admin/test-model", post(admin_test_model))
         // Admin UI
         .route("/admin-ui", get(admin_ui))
         // Proxy routes - using catch-all path
@@ -97,7 +106,9 @@ async fn main() {
         .with_state(services);
 
     // Start server
-    let listener = tokio::net::TcpListener::bind(addr).await.expect("Failed to bind");
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("Failed to bind");
     if let Err(e) = axum::serve(listener, app).await {
         tracing::error!("Server error: {}", e);
     }
@@ -121,7 +132,11 @@ async fn root() -> Json<RootResponse> {
 /// Admin UI endpoint
 async fn admin_ui() -> Response {
     match tokio::fs::read_to_string("./frontend/index.html").await {
-        Ok(content) => ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], content).into_response(),
+        Ok(content) => (
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            content,
+        )
+            .into_response(),
         Err(_) => (StatusCode::NOT_FOUND, "Admin UI not found").into_response(),
     }
 }
@@ -144,7 +159,10 @@ async fn admin_config_update(
     admin::update_config(services.state, headers, Json(payload)).await
 }
 
-async fn admin_client_keys_get(State(services): State<AppServices>, headers: HeaderMap) -> Response {
+async fn admin_client_keys_get(
+    State(services): State<AppServices>,
+    headers: HeaderMap,
+) -> Response {
     admin::get_client_keys(services.state, headers).await
 }
 
@@ -166,6 +184,14 @@ async fn admin_logs_get(State(services): State<AppServices>, headers: HeaderMap)
 
 async fn admin_logs_clear(State(services): State<AppServices>, headers: HeaderMap) -> Response {
     admin::clear_logs(services.state, services.log_store, headers).await
+}
+
+async fn admin_test_model(
+    State(services): State<AppServices>,
+    headers: HeaderMap,
+    Json(payload): Json<admin::ModelTestRequest>,
+) -> Response {
+    admin::test_model(services.state, services.log_store, headers, Json(payload)).await
 }
 
 /// Proxy handler for /v1/* routes (fallback handler)

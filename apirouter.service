@@ -5,9 +5,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/home/maiscrm/workspace/apirouter
-ExecStart=/home/maiscrm/workspace/apirouter/target/release/apirouter --port 1999
+# User 和 WorkingDirectory 由安装脚本动态设置
+WorkingDirectory=%h/workspace/apirouter
+ExecStart=%h/workspace/apirouter/target/release/apirouter --port 1999
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -16,4 +16,4 @@ LimitNOFILE=65536
 Environment=RUST_LOG=info
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

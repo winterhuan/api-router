@@ -39,6 +39,7 @@
         };
     </script>
     <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
     <style>
         [v-cloak] {
             display: none;
@@ -263,42 +264,53 @@
                             </button>
                         </div>
 
-                        <article
-                            v-for="(upstream, index) in config.upstreams"
-                            :key="`${upstream.id}-${index}`"
-                            class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"
-                        >
-                            <button
-                                class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-800/60"
-                                @click="toggleUpstream(index)"
+                        <div id="upstream-list" class="space-y-4">
+                            <article
+                                v-for="(upstream, index) in config.upstreams"
+                                :key="upstream._ui_id"
+                                class="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900"
                             >
-                                <div class="min-w-0 flex-1">
-                                    <div class="flex items-center gap-2">
-                                        <span
-                                            class="h-2.5 w-2.5 rounded-full"
-                                            :class="upstream.enabled ? 'bg-emerald-400' : 'bg-slate-500'"
-                                        ></span>
-                                        <p class="truncate text-sm font-semibold text-slate-100">{{ upstream.id || '未命名上游' }}</p>
+                                <div class="flex items-center">
+                                    <!-- 拖拽手柄 -->
+                                    <div class="drag-handle cursor-grab px-3 py-4 text-slate-600 hover:text-slate-400">
+                                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                            <circle cx="9" cy="5" r="1"/><circle cx="9" cy="12" r="1"/><circle cx="9" cy="19" r="1"/>
+                                            <circle cx="15" cy="5" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="19" r="1"/>
+                                        </svg>
                                     </div>
-                                    <p class="mt-1 truncate text-xs text-slate-400">{{ upstream.base_url }}</p>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <span class="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{{ upstream.api_format }}</span>
-                                    <span class="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">优先级 {{ upstream.priority }}</span>
-                                    <svg
-                                        class="h-4 w-4 text-slate-400 transition"
-                                        :class="expandedUpstreams.includes(index) ? 'rotate-180' : ''"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        stroke-width="2"
-                                    >
-                                        <polyline points="6 9 12 15 18 9"/>
-                                    </svg>
-                                </div>
-                            </button>
 
-                            <div v-show="expandedUpstreams.includes(index)" class="space-y-4 border-t border-slate-800 bg-slate-950/60 p-4">
+                                    <button
+                                         class="flex w-full items-center justify-between gap-4 px-4 py-3 text-left transition hover:bg-slate-800/60"
+                                         @click="toggleUpstream(upstream._ui_id)"
+                                     >
+                                         <div class="min-w-0 flex-1">
+                                             <div class="flex items-center gap-2">
+                                                 <span
+                                                     class="h-2.5 w-2.5 rounded-full"
+                                                     :class="upstream.enabled ? 'bg-emerald-400' : 'bg-slate-500'"
+                                                 ></span>
+                                                 <p class="truncate text-sm font-semibold text-slate-100">{{ upstream.id || '未命名上游' }}</p>
+                                             </div>
+                                             <p class="mt-1 truncate text-xs text-slate-400">{{ upstream.base_url }}</p>
+                                         </div>
+                                         <div class="flex items-center gap-2">
+                                             <span class="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{{ upstream.api_format }}</span>
+                                             <span class="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">优先级 {{ upstream.priority }}</span>
+                                             <svg
+                                                 class="h-4 w-4 text-slate-400 transition"
+                                                 :class="expandedUpstreams.includes(upstream._ui_id) ? 'rotate-180' : ''"
+                                                 viewBox="0 0 24 24"
+                                                 fill="none"
+                                                 stroke="currentColor"
+                                                 stroke-width="2"
+                                             >
+                                                 <polyline points="6 9 12 15 18 9"/>
+                                             </svg>
+                                         </div>
+                                     </button>
+                                 </div>
+
+                                 <div v-show="expandedUpstreams.includes(upstream._ui_id)" class="space-y-4 border-t border-slate-800 bg-slate-950/60 p-4">
                                 <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
                                     <div>
                                         <label class="mb-2 block text-xs font-medium text-slate-400">ID</label>
@@ -352,7 +364,7 @@
                                         ></textarea>
                                     </div>
                                     <div>
-                                        <label class="mb-2 block text-xs font-medium text-slate-400">模型映射（JSON）</label>
+                                        <label class="mb-2 block text-xs font-medium text-slate-400">模型映射 (JSON)</label>
                                         <textarea
                                             rows="4"
                                             :value="JSON.stringify(upstream.model_map || {}, null, 2)"
@@ -363,17 +375,32 @@
                                 </div>
 
                                 <div class="flex flex-wrap items-center justify-between gap-4">
-                                    <label class="inline-flex cursor-pointer items-center gap-3">
-                                        <input
-                                            v-model="upstream.enabled"
-                                            type="checkbox"
-                                            class="peer sr-only"
-                                        >
-                                        <span class="relative h-6 w-11 rounded-full bg-slate-700 transition peer-checked:bg-brand-500">
-                                            <span class="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5"></span>
-                                        </span>
-                                        <span class="text-sm text-slate-300">已启用</span>
-                                    </label>
+                                    <div class="flex items-center gap-4">
+                                        <label class="inline-flex cursor-pointer items-center gap-3">
+                                            <input
+                                                v-model="upstream.enabled"
+                                                type="checkbox"
+                                                class="peer sr-only"
+                                            >
+                                            <span class="relative h-6 w-11 rounded-full bg-slate-700 transition peer-checked:bg-brand-500">
+                                                <span class="absolute left-1 top-1 h-4 w-4 rounded-full bg-white transition peer-checked:translate-x-5"></span>
+                                            </span>
+                                            <span class="text-sm text-slate-300">已启用</span>
+                                        </label>
+
+                                        <button
+                                             class="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white transition hover:bg-emerald-500 disabled:opacity-50"
+                                             :disabled="saveLoading"
+                                             @click="saveConfig(true)"
+                                         >
+                                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+                                                <polyline points="17 21 17 13 7 13 7 21"/>
+                                                <polyline points="7 3 7 8 15 8"/>
+                                            </svg>
+                                            保存此上游
+                                        </button>
+                                    </div>
 
                                     <button
                                         class="inline-flex items-center rounded-lg border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 transition hover:bg-rose-500/20"
@@ -384,6 +411,7 @@
                                 </div>
                             </div>
                         </article>
+                    </div>
 
                         <div
                             v-if="upstreamsMessage"
@@ -436,7 +464,7 @@
 
                                 <article
                                     v-for="(key, index) in clientKeys"
-                                    :key="`${key.key}-${index}`"
+                                    :key="'client-key-' + index"
                                     class="rounded-xl border border-slate-800 bg-slate-950/50 p-4"
                                 >
                                     <div class="flex flex-wrap items-start justify-between gap-4">
@@ -593,9 +621,21 @@
                                         </div>
                                         <p v-if="attempt.url" class="mt-2 break-all text-xs text-slate-500">{{ attempt.url }}</p>
                                         <p v-if="attempt.error" class="mt-2 text-xs text-rose-300">{{ attempt.error }}</p>
-                                        <details v-if="attempt.response_body" class="mt-3">
-                                            <summary class="cursor-pointer text-xs text-slate-400">查看响应</summary>
-                                            <pre class="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-xs text-slate-300">{{ attempt.response_body }}</pre>
+
+                                        <div class="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-2">
+                                            <details v-if="attempt.request_headers" class="group">
+                                                <summary class="cursor-pointer text-xs text-slate-400 group-open:text-brand-400">查看请求头</summary>
+                                                <pre class="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-[10px] text-slate-300">{{ JSON.stringify(attempt.request_headers, null, 2) }}</pre>
+                                            </details>
+                                            <details v-if="attempt.request_body" class="group">
+                                                <summary class="cursor-pointer text-xs text-slate-400 group-open:text-brand-400">查看请求体</summary>
+                                                <pre class="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-[10px] text-slate-300">{{ attempt.request_body }}</pre>
+                                            </details>
+                                        </div>
+
+                                        <details v-if="attempt.response_body" class="group mt-3">
+                                            <summary class="cursor-pointer text-xs text-slate-400 group-open:text-brand-400">查看响应体</summary>
+                                            <pre class="mt-2 overflow-x-auto rounded-lg border border-slate-800 bg-slate-950 p-3 font-mono text-[10px] text-slate-300">{{ attempt.response_body }}</pre>
                                         </details>
                                     </div>
                                 </div>
@@ -610,6 +650,99 @@
                                 : 'border-rose-500/40 bg-rose-500/10 text-rose-200'"
                         >
                             {{ logsMessage }}
+                        </div>
+                    </section>
+
+                    <section v-show="currentPage === 'test'" class="space-y-4">
+                        <div class="rounded-2xl border border-slate-800 bg-slate-900">
+                            <div class="border-b border-slate-800 px-5 py-4">
+                                <h3 class="text-base font-semibold text-slate-100">模型测试</h3>
+                            </div>
+                            <div class="space-y-4 p-5">
+                                <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
+                                    <div>
+                                        <label class="mb-2 block text-xs font-medium text-slate-400">选择测试上游</label>
+                                        <select
+                                            v-model="testConfig.upstream_id"
+                                            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-brand-500/50 transition focus:border-brand-500 focus:ring-2"
+                                            @change="testConfig.model = testModels[0] || 'custom'"
+                                        >
+                                            <option :value="null">自动选择 (负载均衡)</option>
+                                            <option v-for="u in config.upstreams" :key="u.id" :value="u.id">{{ u.id }}</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="mb-2 block text-xs font-medium text-slate-400">测试请求格式</label>
+                                        <select
+                                            v-model="testConfig.source_format"
+                                            class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-brand-500/50 transition focus:border-brand-500 focus:ring-2"
+                                        >
+                                            <option value="anthropic">Anthropic (/v1/messages)</option>
+                                            <option value="openai">OpenAI (/v1/chat/completions)</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="mb-2 block text-xs font-medium text-slate-400">选择测试模型</label>
+                                        <div class="flex gap-2">
+                                            <select
+                                                v-model="testConfig.model"
+                                                class="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-brand-500/50 transition focus:border-brand-500 focus:ring-2"
+                                            >
+                                                <option v-for="m in testModels" :key="m" :value="m">{{ m }}</option>
+                                                <option value="custom">自定义模型...</option>
+                                            </select>
+                                            <input
+                                                v-if="testConfig.model === 'custom' || testModels.length === 0"
+                                                v-model="customModel"
+                                                type="text"
+                                                placeholder="输入模型名称"
+                                                class="flex-1 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-brand-500/50 transition focus:border-brand-500 focus:ring-2"
+                                            >
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label class="mb-2 block text-xs font-medium text-slate-400">测试 Prompt</label>
+                                    <textarea
+                                        v-model="testConfig.prompt"
+                                        rows="4"
+                                        placeholder="输入测试内容..."
+                                        class="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 outline-none ring-brand-500/50 transition focus:border-brand-500 focus:ring-2"
+                                    ></textarea>
+                                </div>
+
+                                <div class="flex items-center gap-4">
+                                    <label class="inline-flex cursor-pointer items-center gap-2">
+                                        <input
+                                            v-model="testConfig.stream"
+                                            type="checkbox"
+                                            class="peer sr-only"
+                                        >
+                                        <span class="relative h-5 w-9 rounded-full bg-slate-700 transition peer-checked:bg-brand-500">
+                                            <span class="absolute left-1 top-1 h-3 w-3 rounded-full bg-white transition peer-checked:translate-x-4"></span>
+                                        </span>
+                                        <span class="text-xs text-slate-400">流式输出</span>
+                                    </label>
+                                    <button
+                                        class="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-brand-600 to-cyan-600 px-6 py-2 text-sm font-semibold text-white transition hover:from-brand-500 hover:to-cyan-500 disabled:cursor-not-allowed disabled:opacity-50"
+                                        :disabled="testLoading"
+                                        @click="runTest"
+                                    >
+                                        {{ testLoading ? '测试中...' : '发送请求' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="testResult" class="rounded-2xl border border-slate-800 bg-slate-900 overflow-hidden">
+                            <div class="flex items-center justify-between border-b border-slate-800 px-5 py-3 bg-slate-950/50">
+                                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500">响应结果</h3>
+                                <span class="text-[10px] font-mono text-slate-600">{{ testDuration }}ms</span>
+                            </div>
+                            <div class="p-5">
+                                <pre class="whitespace-pre-wrap font-mono text-sm text-slate-300">{{ testResult }}</pre>
+                            </div>
                         </div>
                     </section>
 
@@ -707,6 +840,11 @@
                         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>'
                     },
                     {
+                        id: 'test',
+                        label: '模型测试',
+                        icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 1 1-7.6-11.8 8.38 8.38 0 0 1 3.8.9L21 3z"/><path d="M11 9l2 2 4-4"/></svg>'
+                    },
+                    {
                         id: 'settings',
                         label: '系统设置',
                         icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>'
@@ -728,6 +866,18 @@
                 const clientKeys = ref([]);
                 const logs = ref([]);
 
+                const testConfig = reactive({
+                    upstream_id: null,
+                    model: 'big',
+                    prompt: '你好，请介绍一下你自己。',
+                    stream: false,
+                    source_format: 'anthropic'
+                });
+                const customModel = ref('');
+                const testLoading = ref(false);
+                const testResult = ref('');
+                const testDuration = ref(0);
+
                 const expandedUpstreams = ref([]);
                 const expandedLogs = ref([]);
                 const saveLoading = ref(false);
@@ -745,12 +895,31 @@
 
                 const serviceUrl = computed(() => window.location.origin);
 
+                const testModels = computed(() => {
+                    if (!testConfig.upstream_id) {
+                        // 负载均衡时：显示 big, mid, small, mini
+                        return ['big', 'mid', 'small', 'mini'];
+                    }
+
+                    // 指定上游时：显示该上游 model_map 中定义的所有真实模型 ID (values)
+                    const upstream = config.upstreams.find(u => u.id === testConfig.upstream_id);
+                    if (upstream && upstream.model_map) {
+                        const models = new Set(Object.values(upstream.model_map));
+                        return Array.from(models).sort();
+                    }
+                    return [];
+                });
+
                 const stats = computed(() => ({
                     totalUpstreams: config.upstreams.length,
                     enabledUpstreams: config.upstreams.filter((u) => u.enabled).length,
                     totalKeys: clientKeys.value.length,
                     totalLogs: logs.value.length
                 }));
+
+                function generateUiId() {
+                    return Math.random().toString(36).substring(2, 11);
+                }
 
                 function authHeaders(password) {
                     return {
@@ -830,6 +999,17 @@
                             method: 'DELETE',
                             headers: authHeaders(password)
                         });
+                    },
+
+                    async testModel(password, data) {
+                        return fetch(`${window.location.origin}/admin/test-model`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                ...authHeaders(password)
+                            },
+                            body: JSON.stringify(data)
+                        });
                     }
                 };
 
@@ -879,8 +1059,18 @@
                 async function loadConfig() {
                     try {
                         const data = await api.getConfig(adminPassword.value);
-                        config.upstreams = Array.isArray(data.upstreams) ? data.upstreams : [];
+                        const upstreams = Array.isArray(data.upstreams) ? data.upstreams : [];
+                        upstreams.forEach(u => {
+                            if (!u._ui_id) u._ui_id = generateUiId();
+                            if (!u.models) u.models = [];
+                            if (!u.keys) u.keys = [];
+                            if (!u.model_map) u.model_map = {};
+                        });
+                        config.upstreams = upstreams;
                         config.debug_mode = Boolean(data.debug_mode);
+                        if (currentPage.value === 'upstreams') {
+                            initSortable();
+                        }
                     } catch (error) {
                         handleAuthError(error);
                         console.error('加载配置失败:', error);
@@ -923,27 +1113,79 @@
                 function selectPage(pageId) {
                     currentPage.value = pageId;
                     sidebarOpen.value = false;
+                    if (pageId === 'upstreams') {
+                        initSortable();
+                    }
                 }
 
-                function toggleUpstream(index) {
-                    const found = expandedUpstreams.value.indexOf(index);
+                let sortableInstance = null;
+                function initSortable() {
+                    window.setTimeout(() => {
+                        const el = document.getElementById('upstream-list');
+                        if (el) {
+                            if (sortableInstance) {
+                                sortableInstance.destroy();
+                            }
+                            sortableInstance = Sortable.create(el, {
+                                handle: '.drag-handle',
+                                animation: 150,
+                                ghostClass: 'bg-brand-500/10',
+                                onEnd: (evt) => {
+                                    const { oldIndex, newIndex } = evt;
+                                    if (oldIndex === newIndex) return;
+
+                                    // 重要：先撤销 Sortable 对 DOM 的修改，让 Vue 来控制 DOM
+                                    const parent = evt.from;
+                                    const item = evt.item;
+                                    parent.removeChild(item);
+                                    const referenceNode = parent.children[oldIndex];
+                                    if (referenceNode) {
+                                        parent.insertBefore(item, referenceNode);
+                                    } else {
+                                        parent.appendChild(item);
+                                    }
+
+                                    // 然后更新 Vue 状态
+                                    const items = [...config.upstreams];
+                                    const [movedItem] = items.splice(oldIndex, 1);
+                                    items.splice(newIndex, 0, movedItem);
+
+                                    // 重新计算优先级
+                                    items.forEach((u, i) => {
+                                        u.priority = i + 1;
+                                    });
+
+                                    config.upstreams = items;
+
+                                    // 保存新顺序
+                                    saveConfig(true);
+                                }
+                            });
+                        }
+                    }, 100);
+                }
+
+                function toggleUpstream(uiId) {
+                    const found = expandedUpstreams.value.indexOf(uiId);
                     if (found >= 0) {
                         expandedUpstreams.value.splice(found, 1);
                     } else {
-                        expandedUpstreams.value.push(index);
+                        expandedUpstreams.value.push(uiId);
                     }
                 }
 
                 function addUpstream() {
                     config.upstreams.push({
+                        _ui_id: generateUiId(),
                         id: `upstream-${Date.now()}`,
                         base_url: 'https://api.example.com/v1',
                         api_format: 'anthropic',
                         keys: ['sk-key-here'],
                         model_map: {
-                            'claude-haiku-4-5-20251001': 'claude-haiku-4-5-20251001',
-                            'claude-opus-4-6': 'claude-opus-4-6',
-                            'claude-sonnet-4-6': 'claude-sonnet-4-6'
+                            'big': 'claude-3-opus-20240229',
+                            'mid': 'claude-3-sonnet-20240229',
+                            'small': 'claude-3-haiku-20240307',
+                            'mini': 'claude-3-haiku-20240307'
                         },
                         priority: config.upstreams.length + 1,
                         enabled: true
@@ -955,10 +1197,11 @@
                         return;
                     }
 
+                    const upstream = config.upstreams[index];
+                    if (upstream && upstream._ui_id) {
+                        expandedUpstreams.value = expandedUpstreams.value.filter(id => id !== upstream._ui_id);
+                    }
                     config.upstreams.splice(index, 1);
-                    expandedUpstreams.value = expandedUpstreams.value
-                        .filter((i) => i !== index)
-                        .map((i) => (i > index ? i - 1 : i));
                 }
 
                 function updateUpstreamKeys(index, event) {
@@ -999,6 +1242,72 @@
                         }
                     } catch (error) {
                         showMessageTemp('keys', `生成 Key 失败：${error.message}`, 'error');
+                    }
+                }
+
+                async function runTest() {
+                    testLoading.value = true;
+                    testResult.value = '';
+                    const start = Date.now();
+                    try {
+                        const testModelName = testConfig.model === 'custom' ? customModel.value : testConfig.model;
+                        const response = await api.testModel(adminPassword.value, {
+                            upstream_id: testConfig.upstream_id,
+                            model: testModelName,
+                            prompt: testConfig.prompt,
+                            stream: testConfig.stream,
+                            source_format: testConfig.source_format
+                        });
+                        if (!response.ok) {
+                            const error = await response.text();
+                            testResult.value = `错误: ${error}`;
+                            return;
+                        }
+                        if (testConfig.stream) {
+                            const reader = response.body.getReader();
+                            const decoder = new TextDecoder();
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                const chunk = decoder.decode(value);
+                                const lines = chunk.split('\n');
+                                for (const line of lines) {
+                                    if (line.startsWith('data: ')) {
+                                        const data = line.slice(6);
+                                        if (data === '[DONE]') continue;
+                                        try {
+                                            const json = JSON.parse(data);
+                                            if (json.type === 'content_block_delta') {
+                                                testResult.value += json.delta.text;
+                                            } else if (json.choices && json.choices[0].delta) {
+                                                const delta = json.choices[0].delta;
+                                                // Handle both content and reasoning (thinking models)
+                                                if (delta.content) {
+                                                    testResult.value += delta.content;
+                                                }
+                                                if (delta.reasoning) {
+                                                    testResult.value += delta.reasoning;
+                                                }
+                                            }
+                                        } catch (e) {}
+                                    }
+                                }
+                            }
+                        } else {
+                            const data = await response.json();
+                            if (data.content && Array.isArray(data.content)) {
+                                testResult.value = data.content.map(c => c.text).join('');
+                            } else if (data.choices && data.choices[0].message) {
+                                testResult.value = data.choices[0].message.content;
+                            } else {
+                                testResult.value = JSON.stringify(data, null, 2);
+                            }
+                        }
+                    } catch (error) {
+                        testResult.value = `请求失败: ${error.message}`;
+                    } finally {
+                        testLoading.value = false;
+                        testDuration.value = Date.now() - start;
                     }
                 }
 
@@ -1054,12 +1363,19 @@
                     }
                 }
 
-                async function saveConfig() {
+                async function saveConfig(keepExpanded = false) {
                     saveLoading.value = true;
 
                     try {
+                        // 准备保存的数据，移除 UI 内部 ID
+                        const upstreamsToSave = config.upstreams.map(u => {
+                            const clean = JSON.parse(JSON.stringify(u));
+                            delete clean._ui_id;
+                            return clean;
+                        });
+
                         const payload = {
-                            upstreams: config.upstreams,
+                            upstreams: upstreamsToSave,
                             debug_mode: config.debug_mode
                         };
 
@@ -1078,7 +1394,10 @@
                             newPassword.value = '';
                         }
 
-                        expandedUpstreams.value = [];
+                        if (keepExpanded !== true) {
+                            expandedUpstreams.value = [];
+                        }
+
                         showMessageTemp('upstreams', '配置保存成功！', 'success');
                         showMessageTemp('settings', '设置保存成功！', 'success');
                     } catch (error) {
@@ -1170,6 +1489,7 @@
                     settingsMessage,
                     settingsMessageType,
                     serviceUrl,
+                    testModels,
                     stats,
                     refreshData,
                     toggleUpstream,
@@ -1185,7 +1505,13 @@
                     clearLogs,
                     loadLogs,
                     saveConfig,
-                    saveClientKeys
+                    saveClientKeys,
+                     testConfig,
+                     customModel,
+                     testLoading,
+                     testResult,
+                    testDuration,
+                    runTest
                 };
             }
         }).mount('#app');
